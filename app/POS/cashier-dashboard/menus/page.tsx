@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore, type PointerEvent }
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { createClient } from "@/lib/supabase/client";
 
 type MenuItem = {
 	id: string;
@@ -53,6 +54,35 @@ export default function MenusPage() {
 			} catch { }
 		};
 		void loadProducts();
+	}, []);
+
+	useEffect(() => {
+		const refreshProducts = async () => {
+			try {
+				const response = await fetch("/api/products", { cache: "no-store" });
+				const payload = await response.json().catch(() => ({}));
+				if (response.ok && Array.isArray(payload.products)) setMenuItems(payload.products);
+			} catch {
+				return;
+			}
+		};
+
+		const supabase = createClient();
+		const productChannel = supabase
+			.channel("cashier-menu-products")
+			.on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => {
+				void refreshProducts();
+			})
+			.subscribe();
+		const productBroadcast = "BroadcastChannel" in window ? new BroadcastChannel("kaffey-product-notifications") : null;
+		const handleBroadcast = () => void refreshProducts();
+		productBroadcast?.addEventListener("message", handleBroadcast);
+
+		return () => {
+			productBroadcast?.removeEventListener("message", handleBroadcast);
+			productBroadcast?.close();
+			void supabase.removeChannel(productChannel);
+		};
 	}, []);
 
 	const visibleItems = useMemo(() => {
@@ -106,7 +136,7 @@ export default function MenusPage() {
 						</Card>)}
 					</div>
 					{totalPages > 1 && <nav className="pos-pagination" aria-label="Product pages"><button aria-label="Previous product page" disabled={safePage === 1} type="button" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}><ChevronLeft size={16} /></button><span aria-live="polite">Page {safePage} of {totalPages}</span><button aria-label="Next product page" disabled={safePage === totalPages} type="button" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}><ChevronRight size={16} /></button></nav>}
-					{visibleItems.length === 0 && <div className="pos-empty-state"><Search size={22} /><p>No drinks found</p><span>Try another search or category.</span></div>}
+					{visibleItems.length === 0 && <div className="products-empty-state menu-products-empty-state"><div className="products-empty-art"><img src="/coffees/teacup.png" alt="" /></div><strong>No coffee found</strong><p>Try another search or choose a different category.</p></div>}
 				</div>
 
 				<Card className={`pos-order-panel${isOrderOpen ? " is-open" : ""}${dragStartY !== null ? " is-dragging" : ""}`} style={isOrderOpen ? { transform: `translateY(${dragOffset}px)` } : undefined}>

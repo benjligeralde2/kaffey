@@ -2,6 +2,7 @@
 
 import {
 	Bell,
+	BarChart3,
 	ChevronDown,
 	Coffee,
 	HelpCircle,
@@ -57,6 +58,7 @@ export default function AdminDashboardLayout({ children }: { children: React.Rea
 							<Link className={pathname === "/POS/admin-dashboard" ? "active" : undefined} href="/POS/admin-dashboard" title="Dashboard"><LayoutDashboard size={17} /> Dashboard</Link>
 							<Link className={isCurrentPage("/POS/admin-dashboard/accounts") ? "active" : undefined} href="/POS/admin-dashboard/accounts" title="Accounts"><Users size={17} /> Accounts</Link>
 							<Link className={isCurrentPage("/POS/admin-dashboard/products") ? "active" : undefined} href="/POS/admin-dashboard/products" title="Products"><Coffee size={17} /> Products</Link>
+							<Link className={isCurrentPage("/POS/admin-dashboard/sales-reports") ? "active" : undefined} href="/POS/admin-dashboard/sales-reports" title="Sales Reports"><BarChart3 size={17} /> Sales Reports</Link>
 							<Link className={isCurrentPage("/POS/admin-dashboard/settings") ? "active" : undefined} href="/POS/admin-dashboard/settings" title="Settings"><Settings size={17} /> Settings</Link>
 						</nav>
 					</div>
@@ -78,6 +80,7 @@ export default function AdminDashboardLayout({ children }: { children: React.Rea
 				<Link className={pathname === "/POS/admin-dashboard" ? "active" : undefined} href="/POS/admin-dashboard"><LayoutDashboard size={18} /><span>Dashboard</span></Link>
 				<Link className={isCurrentPage("/POS/admin-dashboard/accounts") ? "active" : undefined} href="/POS/admin-dashboard/accounts"><Users size={18} /><span>Accounts</span></Link>
 				<Link className={isCurrentPage("/POS/admin-dashboard/products") ? "active" : undefined} href="/POS/admin-dashboard/products"><Coffee size={18} /><span>Products</span></Link>
+				<Link className={isCurrentPage("/POS/admin-dashboard/sales-reports") ? "active" : undefined} href="/POS/admin-dashboard/sales-reports"><BarChart3 size={18} /><span>Reports</span></Link>
 				<Link className={isCurrentPage("/POS/admin-dashboard/settings") ? "active" : undefined} href="/POS/admin-dashboard/settings"><Settings size={18} /><span>Settings</span></Link>
 			</nav>
 		</main>

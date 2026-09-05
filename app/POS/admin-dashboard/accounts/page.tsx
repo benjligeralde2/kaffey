@@ -1,7 +1,7 @@
 "use client";
 
-import { MoreHorizontal, Search, UserPlus, UserRound, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ChevronLeft, ChevronRight, MoreHorizontal, Search, UserPlus, UserRound, X } from "lucide-react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 type Account = {
 	id: string;
@@ -12,6 +12,26 @@ type Account = {
 	status: string;
 };
 
+const avatarColors = [
+	{ background: "#c5ddd5", foreground: "#28544f" },
+	{ background: "#f0d2bd", foreground: "#774936" },
+	{ background: "#d2d8ed", foreground: "#3d4d7a" },
+	{ background: "#e5d2e3", foreground: "#704b6d" },
+	{ background: "#e2ddbd", foreground: "#665d2d" },
+] as const;
+
+const getAvatarColor = (account: Account) => {
+	const colorIndex = [...account.id].reduce((total, character) => total + character.charCodeAt(0), 0) % avatarColors.length;
+	return avatarColors[colorIndex];
+};
+
+const subscribeToResize = (onStoreChange: () => void) => {
+	window.addEventListener("resize", onStoreChange);
+	return () => window.removeEventListener("resize", onStoreChange);
+};
+const getTabletSnapshot = () => window.innerWidth >= 768 && window.innerWidth <= 1100;
+const getServerSnapshot = () => false;
+
 export default function AdminAccountsPage() {
 	const [accounts, setAccounts] = useState<Account[]>([]);
 	const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
@@ -19,11 +39,14 @@ export default function AdminAccountsPage() {
 	const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 	const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 	const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+	const [confirmationAction, setConfirmationAction] = useState<"update" | "delete">("update");
 	const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
+	const [currentPage, setCurrentPage] = useState(1);
 	const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [submitError, setSubmitError] = useState("");
 	const [adminPassword, setAdminPassword] = useState("");
+	const [currentDate, setCurrentDate] = useState<Date | null>(null);
 	const [formData, setFormData] = useState({
 		fullName: "",
 		email: "",
@@ -39,11 +62,21 @@ export default function AdminAccountsPage() {
 	const filteredAccounts = accounts.filter((account) =>
 		[account.name, account.email, account.role].some((value) => value.toLowerCase().includes(normalizedQuery)),
 	);
+	const isTablet = useSyncExternalStore(subscribeToResize, getTabletSnapshot, getServerSnapshot);
+	const accountsPerPage = isTablet ? 4 : 5;
+	const totalPages = Math.max(1, Math.ceil(filteredAccounts.length / accountsPerPage));
+	const safePage = Math.min(currentPage, totalPages);
+	const paginatedAccounts = filteredAccounts.slice((safePage - 1) * accountsPerPage, safePage * accountsPerPage);
 	const hasEditChanges = selectedAccount !== null && (
 		editFormData.fullName.trim() !== selectedAccount.name ||
 		editFormData.email.trim() !== selectedAccount.email ||
 		editFormData.password.length > 0
 	);
+
+	useEffect(() => {
+		const timer = window.setTimeout(() => setCurrentDate(new Date()), 0);
+		return () => window.clearTimeout(timer);
+	}, []);
 
 	useEffect(() => {
 		const loadAccounts = async () => {
@@ -134,6 +167,7 @@ export default function AdminAccountsPage() {
 		event.preventDefault();
 		if (!selectedAccount || !hasEditChanges) return;
 		setSubmitError("");
+		setConfirmationAction("update");
 		setIsConfirmModalOpen(true);
 	};
 
@@ -184,31 +218,86 @@ export default function AdminAccountsPage() {
 		}
 	};
 
+	const handleDeleteAccount = () => {
+		if (!selectedAccount) return;
+		setSubmitError("");
+		setConfirmationAction("delete");
+		setIsConfirmModalOpen(true);
+	};
+
+	const confirmAdminPasswordAndDelete = async () => {
+		if (!selectedAccount) return;
+		setSubmitError("");
+		setIsSubmitting(true);
+		try {
+			const response = await fetch("/api/accounts", {
+				method: "DELETE",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ id: selectedAccount.id, adminPassword }),
+			});
+
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				throw new Error(payload.error || "Unable to delete account.");
+			}
+
+			setAccounts((current) => current.filter((account) => account.id !== selectedAccount.id));
+			setIsConfirmModalOpen(false);
+			setAdminPassword("");
+			setIsEditModalOpen(false);
+			setSelectedAccount(null);
+		} catch (error) {
+			setSubmitError(error instanceof Error ? error.message : "Unable to delete account.");
+		} finally {
+			setIsSubmitting(false);
+		}
+	};
+
 	return (
 		<section className="pos-catalog accounts-page" aria-labelledby="accounts-title">
-			<div className="pos-page-heading accounts-heading">
-				<div>
-					<h1 id="accounts-title">Account Management</h1>
+			<div className="orders-dashboard-card menu-header-card accounts-header-card">
+				<div className="orders-dashboard-content">
+					<div className="orders-dashboard-heading">
+						<div>
+							<h1 id="accounts-title" className="accounts-header-accessible-title">Account Management</h1>
+							<p aria-hidden="true">Account Management</p>
+							<span>{currentDate?.toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}</span>
+						</div>
+					</div>
+					<label className="pos-search orders-search accounts-search" htmlFor="accounts-search">
+						<Search size={16} aria-hidden="true" />
+						<input id="accounts-search" type="search" value={searchQuery} onChange={(event) => {
+							setSearchQuery(event.target.value);
+							setCurrentPage(1);
+						}} placeholder="Search accounts" />
+					</label>
+					<button type="button" className="accounts-create-button accounts-header-action" onClick={() => setIsCreateModalOpen(true)}>
+						<UserPlus size={15} aria-hidden="true" />
+						<span>Create Account</span>
+					</button>
 				</div>
 			</div>
 
-			<div className="accounts-toolbar">
-				<label className="accounts-search">
-					<Search size={16} aria-hidden="true" />
-					<input aria-label="Search accounts" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search accounts" />
-				</label>
-				<button type="button" className="accounts-create-button" onClick={() => setIsCreateModalOpen(true)}>
-					<UserPlus size={15} aria-hidden="true" />
-					<span>Create Account</span>
-				</button>
-			</div>
-
+			<div className="accounts-workspace">
+				<div className="accounts-main-pane">
 			<div className="accounts-list" role="list" aria-label="Team accounts">
-				{isLoadingAccounts ? <p className="accounts-empty">Loading accounts...</p> : filteredAccounts.length > 0 ? filteredAccounts.map((account) => (
-					<article className="account-row" key={account.id || account.email} role="listitem">
+				{!isLoadingAccounts && filteredAccounts.length > 0 && (
+					<div className="account-table-header" aria-hidden="true">
+						<span>Account</span>
+						<span>Role</span>
+						<span>Status</span>
+						<span />
+					</div>
+				)}
+				{isLoadingAccounts ? <p className="accounts-empty">Loading accounts...</p> : filteredAccounts.length > 0 ? paginatedAccounts.map((account) => (
+					<article className={`account-row${selectedAccount?.id === account.id ? " selected" : ""}`} key={account.id || account.email} role="listitem" tabIndex={0} onClick={() => setSelectedAccount(account)} onKeyDown={(event) => {
+						if (event.key === "Enter" || event.key === " ") {
+							event.preventDefault();
+							setSelectedAccount(account);
+						}
+					}}>
 						<div className="account-identity">
-							<span className="account-avatar"><UserRound size={17} aria-hidden="true" />{account.initials}</span>
-							<span><strong>{account.name}</strong><small>{account.email}</small></span>
+							<span><strong>{account.name}</strong></span>
 						</div>
 						<span className="account-role">{account.role}</span>
 						<span className="account-status"><i aria-hidden="true" />{account.status}</span>
@@ -223,7 +312,50 @@ export default function AdminAccountsPage() {
 							)}
 						</div>
 					</article>
-				)) : <p className="accounts-empty">No accounts match your search.</p>}
+				)) : <div className="accounts-empty-state"><div className="accounts-empty-art"><img src="/coffees/user.png" alt="" /></div><strong>No accounts found</strong><p>Try another search to find a team account.</p></div>}
+			</div>
+
+			{!isLoadingAccounts && totalPages > 1 && (
+				<nav className="accounts-pagination" aria-label="Account list pagination">
+					<button type="button" aria-label="Previous accounts page" disabled={safePage === 1} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}>
+						<ChevronLeft size={15} aria-hidden="true" />
+					</button>
+					<span>Page {safePage} of {totalPages}</span>
+					<button type="button" aria-label="Next accounts page" disabled={safePage === totalPages} onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}>
+						<ChevronRight size={15} aria-hidden="true" />
+					</button>
+				</nav>
+			)}
+				</div>
+
+				<aside className="account-preview" aria-label="Account details preview">
+					{selectedAccount ? (
+						<>
+							<div className="account-preview-heading">
+								<p className="pos-kicker">Selected account</p>
+								<span className="account-preview-status"><i aria-hidden="true" />{selectedAccount.status}</span>
+							</div>
+							<div className="account-preview-identity">
+								<span className="account-preview-avatar" style={getAvatarColor(selectedAccount)}>{selectedAccount.initials}</span>
+								<div>
+									<h2>{selectedAccount.name}</h2>
+									<p>{selectedAccount.email}</p>
+								</div>
+							</div>
+							<dl className="account-preview-details">
+								<div><dt>Role</dt><dd>{selectedAccount.role}</dd></div>
+								<div><dt>Access</dt><dd>Payment and Orders</dd></div>
+								<div><dt>Total sold</dt><dd>₱0.00</dd></div>
+							</dl>
+						</>
+					) : (
+						<div className="account-preview-empty">
+							<UserRound size={24} aria-hidden="true" />
+							<strong>Preview account details</strong>
+							<p>Select an account from the list to review its access and status.</p>
+						</div>
+					)}
+				</aside>
 			</div>
 
 			{isCreateModalOpen && (
@@ -308,11 +440,9 @@ export default function AdminAccountsPage() {
 
 							{submitError ? <p className="account-modal-error" role="alert">{submitError}</p> : null}
 							<div className="account-modal-footer">
-								<button type="button" className="account-modal-secondary" onClick={() => {
-									setIsEditModalOpen(false);
-									setSelectedAccount(null);
-									setSubmitError("");
-								}}>Cancel</button>
+								<button type="button" className="account-modal-primary" onClick={() => void handleDeleteAccount()} disabled={isSubmitting}>
+									{isSubmitting ? "Deleting..." : "Delete account"}
+								</button>
 								<button type="submit" className="account-modal-primary" disabled={isSubmitting || !hasEditChanges}>{isSubmitting ? "Saving..." : "Save changes"}</button>
 							</div>
 						</form>
@@ -330,8 +460,8 @@ export default function AdminAccountsPage() {
 					<div className="charge-modal confirmation-modal" role="dialog" aria-modal="true" aria-labelledby="admin-confirm-title">
 						<div className="account-modal-header">
 							<div>
-								<p className="pos-kicker">Security check</p>
-								<h2 id="admin-confirm-title">Confirm admin access</h2>
+									<p className="pos-kicker">{confirmationAction === "delete" ? "Destructive action" : "Security check"}</p>
+									<h2 id="admin-confirm-title">{confirmationAction === "delete" ? "Delete cashier account" : "Confirm admin access"}</h2>
 							</div>
 							<button type="button" className="charge-modal-close" aria-label="Close admin confirmation" onClick={() => {
 								setIsConfirmModalOpen(false);
@@ -343,7 +473,7 @@ export default function AdminAccountsPage() {
 
 						<form className="account-modal-form" onSubmit={(event) => {
 							event.preventDefault();
-							void confirmAdminPasswordAndUpdate();
+								void (confirmationAction === "delete" ? confirmAdminPasswordAndDelete() : confirmAdminPasswordAndUpdate());
 						}} autoComplete="off">
 							<label>
 								<span>Admin password</span>
@@ -355,7 +485,7 @@ export default function AdminAccountsPage() {
 									setIsConfirmModalOpen(false);
 									setAdminPassword("");
 								}}>Cancel</button>
-								<button type="submit" className="account-modal-primary" disabled={isSubmitting}>{isSubmitting ? "Verifying..." : "Confirm"}</button>
+								<button type="submit" className="account-modal-primary" disabled={isSubmitting}>{isSubmitting ? "Verifying..." : confirmationAction === "delete" ? "Delete account" : "Confirm"}</button>
 							</div>
 						</form>
 					</div>

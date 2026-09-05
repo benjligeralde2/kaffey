@@ -11,16 +11,41 @@ export default function LoginPage() {
 	const [showPassword, setShowPassword] = useState(false);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [errorMessage, setErrorMessage] = useState("");
+	const [isCheckingSession, setIsCheckingSession] = useState(true);
+	const [activeSessionRole, setActiveSessionRole] = useState<"admin" | "cashier" | null>(null);
+	const [isSigningOut, setIsSigningOut] = useState(false);
 	const formRef = useRef<HTMLFormElement>(null);
 	const router = useRouter();
 
 	useEffect(() => {
+		const checkSession = async () => {
+			const { data } = await createClient().auth.getUser();
+			if (data.user) setActiveSessionRole(data.user.app_metadata?.role === "admin" ? "admin" : "cashier");
+			setIsCheckingSession(false);
+		};
+
+		void checkSession();
+
 		const clearLoginFields = () => formRef.current?.reset();
 		clearLoginFields();
 		window.addEventListener("pageshow", clearLoginFields);
 
 		return () => window.removeEventListener("pageshow", clearLoginFields);
 	}, []);
+
+	const activeSessionPath = activeSessionRole === "admin" ? "/POS/admin-dashboard" : "/POS/cashier-dashboard/menus";
+
+	async function handleSignOutAndContinue() {
+		setIsSigningOut(true);
+		const { error } = await createClient().auth.signOut();
+		if (error) {
+			setIsSigningOut(false);
+			setErrorMessage(error.message);
+			return;
+		}
+		setActiveSessionRole(null);
+		setIsSigningOut(false);
+	}
 
 	async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
 		event.preventDefault();
@@ -61,7 +86,7 @@ export default function LoginPage() {
 				</nav>
 			</header>
 
-			<section className="login-hero" aria-labelledby="login-title">
+			{!isCheckingSession && !activeSessionRole && <section className="login-hero" aria-labelledby="login-title">
 				<div className="login-content content-width">
 					<div className="login-art">
 						<p className="eyebrow"><span className="eyebrow-line" /> The daily pour</p>
@@ -91,7 +116,21 @@ export default function LoginPage() {
 						<p className="login-footer">New to the counter? <a href="mailto:hello@kaffey.coffee">Ask for access <span>↗</span></a></p>
 					</div>
 				</div>
-			</section>
+			</section>}
+
+			{activeSessionRole && (
+				<div className="charge-modal-backdrop" role="presentation">
+					<div className="charge-modal login-session-modal" role="dialog" aria-modal="true" aria-labelledby="active-session-title">
+						<p className="pos-kicker">Active session</p>
+						<h2 id="active-session-title">You are already signed in</h2>
+						<p className="login-session-message">Logging out will end your current {activeSessionRole} session. Proceed?</p>
+						<div className="account-modal-footer">
+							<button type="button" className="account-modal-secondary" onClick={() => router.replace(activeSessionPath)}>Stay signed in</button>
+							<button type="button" className="account-modal-primary" onClick={() => void handleSignOutAndContinue()} disabled={isSigningOut}>{isSigningOut ? "Logging out..." : "Proceed"}</button>
+						</div>
+					</div>
+				</div>
+			)}
 		</main>
 	);
 }

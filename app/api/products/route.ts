@@ -23,6 +23,71 @@ function getServiceHeaders() {
 	};
 }
 
+const PRODUCT_IMAGE_BUCKET = "product-images";
+const PRODUCT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
+async function ensureProductImageBucket() {
+	const response = await fetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+		method: "POST",
+		headers: getServiceHeaders(),
+		body: JSON.stringify({
+			id: PRODUCT_IMAGE_BUCKET,
+			name: PRODUCT_IMAGE_BUCKET,
+			public: true,
+			file_size_limit: PRODUCT_IMAGE_MAX_BYTES,
+			allowed_mime_types: ["image/svg+xml", "image/png", "image/jpeg", "image/gif"],
+		}),
+	});
+
+	if (!response.ok) {
+		const result = await response.json().catch(() => ({}));
+		const errorMessage = result?.message || result?.error || "";
+		const bucketAlreadyExists = response.status === 409 || errorMessage.toLowerCase().includes("already exists");
+		if (!bucketAlreadyExists) {
+			throw new Error(errorMessage || "Unable to prepare product image storage.");
+		}
+	}
+}
+
+async function uploadProductImage(image: string, productId: string) {
+	const match = image.match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i);
+	if (!match) return image;
+
+	const mimeType = match[1].toLowerCase();
+	const imageBytes = Buffer.from(match[2], "base64");
+	if (imageBytes.byteLength > PRODUCT_IMAGE_MAX_BYTES) {
+		throw new Error("The selected image must be smaller than 5 MB.");
+	}
+
+	await ensureProductImageBucket();
+	const extension = mimeType.split("/")[1].replace("svg+xml", "svg");
+	const objectPath = `product-${productId}-${Date.now()}.${extension}`;
+	const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${PRODUCT_IMAGE_BUCKET}/${objectPath}`, {
+		method: "POST",
+		headers: {
+			...getServiceHeaders(),
+			"Content-Type": mimeType,
+			"x-upsert": "true",
+		},
+		body: new Uint8Array(imageBytes),
+	});
+
+	const result = await response.json().catch(() => ({}));
+	if (!response.ok) throw new Error(result?.message || "Unable to upload product image.");
+	return `${SUPABASE_URL}/storage/v1/object/public/${PRODUCT_IMAGE_BUCKET}/${objectPath}`;
+}
+
+async function migrateLegacyProductImage(product: ProductRow) {
+	if (!product.image.startsWith("data:")) return product;
+	const image = await uploadProductImage(product.image, product.id);
+	await fetch(`${SUPABASE_URL}/rest/v1/products?id=eq.${encodeURIComponent(product.id)}`, {
+		method: "PATCH",
+		headers: { ...getServiceHeaders(), Prefer: "return=minimal" },
+		body: JSON.stringify({ image }),
+	});
+	return { ...product, image };
+}
+
 async function requireStaff() {
 	const supabase = await createClient();
 	const { data, error } = await supabase.auth.getUser();
@@ -70,7 +135,15 @@ export async function GET() {
 			return NextResponse.json({ error: result?.message || "Unable to load products." }, { status: response.status || 500 });
 		}
 
-		return NextResponse.json({ products: Array.isArray(result) ? result.map(mapProduct) : [] });
+		const products = Array.isArray(result) ? await Promise.all(result.map(async (product: ProductRow) => {
+			try {
+				return await migrateLegacyProductImage(product);
+			} catch {
+				return product;
+			}
+		})) : [];
+
+		return NextResponse.json({ products: products.map(mapProduct) });
 	} catch (error) {
 		return NextResponse.json({ error: error instanceof Error ? error.message : "Unexpected error loading products." }, { status: 500 });
 	}
@@ -95,14 +168,12 @@ export async function POST(request: NextRequest) {
 			return NextResponse.json({ error: "Name, category, description, price, and image are required." }, { status: 400 });
 		}
 
-		if (image.startsWith("data:") && image.length > 5_000_000) {
-			return NextResponse.json({ error: "The selected image must be smaller than 5 MB." }, { status: 400 });
-		}
+		const storedImage = await uploadProductImage(image, crypto.randomUUID());
 
 		const response = await fetch(`${SUPABASE_URL}/rest/v1/products`, {
 			method: "POST",
 			headers: { ...getServiceHeaders(), Prefer: "return=representation" },
-			body: JSON.stringify({ name, category, description, price, image, tag }),
+			body: JSON.stringify({ name, category, description, price, image: storedImage, tag }),
 		});
 		const result = await response.json().catch(() => ({}));
 
@@ -137,14 +208,12 @@ export async function PUT(request: NextRequest) {
 			return NextResponse.json({ error: "Product ID, name, category, description, price, and image are required." }, { status: 400 });
 		}
 
-		if (image.startsWith("data:") && image.length > 5_000_000) {
-			return NextResponse.json({ error: "The selected image must be smaller than 5 MB." }, { status: 400 });
-		}
+		const storedImage = await uploadProductImage(image, id);
 
 		const response = await fetch(`${SUPABASE_URL}/rest/v1/products?id=eq.${encodeURIComponent(id)}`, {
 			method: "PATCH",
 			headers: { ...getServiceHeaders(), Prefer: "return=representation" },
-			body: JSON.stringify({ name, category, description, price, image, tag }),
+			body: JSON.stringify({ name, category, description, price, image: storedImage, tag }),
 		});
 		const result = await response.json().catch(() => ({}));
 

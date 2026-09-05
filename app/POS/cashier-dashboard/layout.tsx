@@ -15,9 +15,21 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { createClient } from "@/lib/supabase/client";
+
+type ProductNotification = {
+	source?: "admin-product-save";
+	action: "added" | "updated";
+	productName: string;
+	timestamp: number;
+};
+
 export default function CashierDashboardLayout({ children }: { children: React.ReactNode }) {
 	const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 	const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+	const [productNotification, setProductNotification] = useState<ProductNotification | null>(null);
+	const [notifications, setNotifications] = useState<ProductNotification[]>([]);
+	const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 	const pathname = usePathname();
 	const isCurrentPage = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 	const handleSidebarToggle = () => {
@@ -37,12 +49,68 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 		setIsSidebarCollapsed(storedState === "true");
 	}, []);
 
+	useEffect(() => {
+		const showProductNotification = (notification: ProductNotification) => {
+			setProductNotification(notification);
+			setNotifications((current) => [notification, ...current.filter((item) => item.timestamp !== notification.timestamp)].slice(0, 10));
+		};
+		const handleProductNotification = (event: StorageEvent) => {
+			if (event.key !== "kaffey-product-notification" || !event.newValue) return;
+			try {
+				const notification = JSON.parse(event.newValue) as ProductNotification;
+				if (notification.source === "admin-product-save" && notification.action && notification.productName) showProductNotification(notification);
+			} catch {
+				return;
+			}
+		};
+		const productBroadcast = "BroadcastChannel" in window ? new BroadcastChannel("kaffey-product-notifications") : null;
+		const handleBroadcastNotification = (event: MessageEvent<ProductNotification>) => {
+			const notification = event.data;
+			if (notification?.source === "admin-product-save" && notification.action && notification.productName) showProductNotification(notification);
+		};
+		productBroadcast?.addEventListener("message", handleBroadcastNotification);
+
+		const supabase = createClient();
+		const productChannel = supabase
+			.channel("cashier-product-notifications")
+			.on("postgres_changes", { event: "INSERT", schema: "public", table: "products" }, (payload) => {
+				const product = payload.new as { name?: string };
+				if (product.name) showProductNotification({ action: "added", productName: product.name, timestamp: Date.now() });
+			})
+			.on("postgres_changes", { event: "UPDATE", schema: "public", table: "products" }, (payload) => {
+				const product = payload.new as { name?: string };
+				if (product.name) showProductNotification({ action: "updated", productName: product.name, timestamp: Date.now() });
+			})
+			.subscribe();
+
+		window.addEventListener("storage", handleProductNotification);
+		return () => {
+			window.removeEventListener("storage", handleProductNotification);
+			productBroadcast?.removeEventListener("message", handleBroadcastNotification);
+			productBroadcast?.close();
+			void supabase.removeChannel(productChannel);
+		};
+	}, []);
+
+	useEffect(() => {
+		if (!productNotification) return;
+		const timer = window.setTimeout(() => setProductNotification(null), 5000);
+		return () => window.clearTimeout(timer);
+	}, [productNotification]);
+
 	return (
 		<main className={`pos-page${isSidebarCollapsed ? " sidebar-collapsed" : ""}${isSidebarOpen ? " sidebar-open" : ""}`}>
 			<header className="pos-header">
 				<div className="pos-brand"><button className="sidebar-toggle header-sidebar-toggle" type="button" onClick={handleSidebarToggle} aria-label={isSidebarOpen ? "Close navigation" : isSidebarCollapsed ? "Expand sidebar" : "Minimize sidebar"} aria-expanded={isSidebarOpen || !isSidebarCollapsed}><Menu size={18} /></button><span className="wordmark-mark">K</span><span>kaffey<span className="wordmark-dot">.</span></span><span className="pos-badge">Counter 01</span></div>
 				<div className="pos-header-actions">
-					<button className="pos-icon-button" type="button" aria-label="Notifications"><Bell size={18} strokeWidth={1.8} /><span className="notification-dot" /></button>
+					<div className="cashier-notification-anchor">
+						<button className="pos-icon-button" type="button" aria-label="Notifications" aria-expanded={isNotificationsOpen} onClick={() => setIsNotificationsOpen((open) => !open)}><Bell size={18} strokeWidth={1.8} /><span className="notification-dot" /></button>
+						{productNotification && !isNotificationsOpen && <div className="cashier-product-notification" role="status"><strong>Menu updated</strong><span>{productNotification.productName} was {productNotification.action}.</span></div>}
+						{isNotificationsOpen && <div className="cashier-notification-panel" role="region" aria-label="Notifications">
+							<div className="cashier-notification-panel-header"><strong>Notifications</strong><span>{notifications.length}</span></div>
+							{notifications.length > 0 ? <div className="cashier-notification-list">{notifications.map((notification) => <div className="cashier-notification-item" key={`${notification.timestamp}-${notification.productName}`}><span className="cashier-notification-icon"><Bell size={13} aria-hidden="true" /></span><span><strong>Menu updated</strong><small>{notification.productName} was {notification.action}.</small></span></div>)}</div> : <p className="cashier-notification-empty">No recent notifications</p>}
+						</div>}
+					</div>
 					<button className="pos-icon-button" type="button" aria-label="Messages"><MessageCircle size={18} strokeWidth={1.8} /></button>
 				</div>
 			</header>

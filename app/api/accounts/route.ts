@@ -283,3 +283,71 @@ export async function PUT(request: NextRequest) {
 		);
 	}
 }
+
+export async function DELETE(request: NextRequest) {
+	if (!SUPABASE_URL || !PUBLISHABLE_KEY || !SERVICE_ROLE_KEY) {
+		return NextResponse.json(
+			{ error: "Supabase configuration is missing." },
+			{ status: 500 },
+		);
+	}
+
+	try {
+		const body = await request.json();
+		const id = typeof body?.id === "string" ? body.id.trim() : "";
+		const adminPassword = typeof body?.adminPassword === "string" ? body.adminPassword : "";
+		if (!id || !adminPassword) {
+			return NextResponse.json({ error: "Account ID and admin password are required." }, { status: 400 });
+		}
+
+		const adminUser = await getCurrentAdminUser();
+		const headers = getServiceHeaders();
+		const reauthResponse = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+			method: "POST",
+			headers: {
+				apikey: PUBLISHABLE_KEY,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ email: adminUser.email, password: adminPassword }),
+		});
+		const reauthResult = await reauthResponse.json().catch(() => ({}));
+		if (!reauthResponse.ok) {
+			return NextResponse.json(
+				{ error: reauthResult?.error_description || reauthResult?.msg || reauthResult?.message || "Invalid admin password." },
+				{ status: 401 },
+			);
+		}
+
+		if (adminUser.id === id) {
+			return NextResponse.json({ error: "The active admin account cannot be deleted." }, { status: 400 });
+		}
+
+		const targetUser = (await getAdminUsers()).find((user) => user.id === id);
+		if (!targetUser) {
+			return NextResponse.json({ error: "Account to delete was not found." }, { status: 404 });
+		}
+		if (targetUser.app_metadata?.role === "admin") {
+			return NextResponse.json({ error: "Admin accounts cannot be deleted here." }, { status: 403 });
+		}
+
+		const response = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${id}`, {
+			method: "DELETE",
+			headers,
+		});
+		const result = await response.json().catch(() => ({}));
+
+		if (!response.ok) {
+			return NextResponse.json(
+				{ error: result?.msg || result?.message || "Unable to delete account." },
+				{ status: response.status || 500 },
+			);
+		}
+
+		return NextResponse.json({ success: true, id });
+	} catch (error) {
+		return NextResponse.json(
+			{ error: error instanceof Error ? error.message : "Unexpected error deleting account." },
+			{ status: 500 },
+		);
+	}
+}
