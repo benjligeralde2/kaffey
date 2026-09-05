@@ -1,69 +1,69 @@
-import Image from "next/image";
+"use client";
+
+import { motion } from "motion/react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+
+const coffeeSlides = [
+  { src: "/coffees/Iced_Coffee_With_Milk_Splash_And_Ice_Cubes_PNG___TopPNG-removebg-preview.png", label: "Iced coffee with milk" },
+  { src: "/coffees/CASTLE101__️_ICE_CREAM_-removebg-preview.png", label: "Chocolate coffee cream" },
+];
 
 export default function Home() {
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [activeSlide, setActiveSlide] = useState(0);
+
+  useEffect(() => {
+    const slideshow = window.setInterval(() => {
+      setActiveSlide((current) => (current + 1) % coffeeSlides.length);
+    }, 4500);
+
+    return () => window.clearInterval(slideshow);
+  }, []);
+
+  const goToSlide = (index: number) => {
+    setActiveSlide((index + coffeeSlides.length) % coffeeSlides.length);
+  };
+
+  const handleHeroMove = (event: React.MouseEvent<HTMLElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setMousePosition({
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    });
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main>
+      <header className="site-header">
+        <nav className="site-nav content-width" aria-label="Primary navigation">
+          <a className="wordmark" href="#home" aria-label="Kaffey home"><span className="wordmark-mark">K</span> kaffey<span className="wordmark-dot">.</span></a>
+          <div className="nav-links"><a href="mailto:hello@kaffey.coffee">Ask help</a><a href="/POS/login">POS sign in <span>↗</span></a></div>
+        </nav>
+      </header>
+      <div className="hero-transition">
+      <motion.section className="hero-section" id="home" onMouseMove={handleHeroMove} onMouseLeave={() => setMousePosition({ x: 0, y: 0 })}>
+        <div className="smoke-layer" aria-hidden="true">
+          <div className="smoke-orb smoke-orb-primary" style={{ ["--x" as string]: `${mousePosition.x - 180}px`, ["--y" as string]: `${mousePosition.y - 190}px`, ["--size" as string]: "360px", ["--delay" as string]: "0s" }} />
+          <div className="smoke-orb smoke-orb-secondary" style={{ ["--x" as string]: `${mousePosition.x - 120}px`, ["--y" as string]: `${mousePosition.y - 100}px`, ["--size" as string]: "280px", ["--delay" as string]: "1.8s" }} />
+          <div className="smoke-orb smoke-orb-tertiary" style={{ ["--x" as string]: `${mousePosition.x - 150}px`, ["--y" as string]: `${mousePosition.y - 220}px`, ["--size" as string]: "300px", ["--delay" as string]: "3.2s" }} />
+          <div className="smoke-orb smoke-orb-quaternary" style={{ ["--x" as string]: `${mousePosition.x - 210}px`, ["--y" as string]: `${mousePosition.y - 140}px`, ["--size" as string]: "240px", ["--delay" as string]: "4.7s" }} />
+          <div className="smoke-orb smoke-orb-quinary" style={{ ["--x" as string]: `${mousePosition.x - 90}px`, ["--y" as string]: `${mousePosition.y - 260}px`, ["--size" as string]: "220px", ["--delay" as string]: "6.2s" }} />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <div className="hero-wave" aria-hidden="true" />
+        <div className="hero-content content-width">
+          <div className="hero-product" aria-label="Featured drinks slideshow">
+            <button className="hero-slide-arrow hero-slide-prev" type="button" aria-label="Previous drink" onClick={() => goToSlide(activeSlide - 1)}><span className="hero-chevron hero-chevron-left" aria-hidden="true" /></button>
+            <div className="hero-product-frame"><img key={activeSlide} className="hero-product-image" src={coffeeSlides[activeSlide].src} alt={coffeeSlides[activeSlide].label} /></div>
+            <button className="hero-slide-arrow hero-slide-next" type="button" aria-label="Next drink" onClick={() => goToSlide(activeSlide + 1)}><span className="hero-chevron hero-chevron-right" aria-hidden="true" /></button>
+            <div className="hero-slide-dots" aria-label="Choose a featured drink">
+              {coffeeSlides.map((slide, index) => <button className={activeSlide === index ? "active" : ""} key={slide.src} type="button" aria-label={`Show ${slide.label}`} aria-current={activeSlide === index ? "true" : undefined} onClick={() => goToSlide(index)} />)}
+            </div>
+          </div>
+          <div className="hero-copy"><p className="eyebrow"><span className="eyebrow-line" /> Kaffey point of sale</p><h1>Keep your<br /><em>counter</em> flowing.</h1><p className="hero-intro">Manage orders, keep the menu moving, and make every handoff feel effortless.</p><Link className="primary-button hero-pos-button" href="/POS/login">Open the POS <span className="hero-chevron hero-chevron-right" aria-hidden="true" /></Link></div>
         </div>
-      </main>
-    </div>
+      </motion.section>
+      </div>
+    </main>
   );
 }
