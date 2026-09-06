@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore, type PointerEvent }
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { createClient } from "@/lib/supabase/client";
 
 type MenuItem = {
@@ -31,6 +32,7 @@ export default function MenusPage() {
 	const [search, setSearch] = useState("");
 	const [currentPage, setCurrentPage] = useState(1);
 	const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+	const [isLoadingProducts, setIsLoadingProducts] = useState(true);
 	const [order, setOrder] = useState<Record<string, number>>({});
 	const [customerName, setCustomerName] = useState("");
 	const [isOrderOpen, setIsOrderOpen] = useState(false);
@@ -49,14 +51,28 @@ export default function MenusPage() {
 	const productsPerPage = isTablet ? menuItems.length : isMobile ? 6 : 8;
 	useEffect(() => { setCurrentTime(new Date()); const timer = window.setInterval(() => setCurrentTime(new Date()), 1000); return () => window.clearInterval(timer); }, []);
 	useEffect(() => {
+		let cancelled = false;
+		let timeoutId = 0;
 		const loadProducts = async () => {
+			const startedAt = Date.now();
 			try {
 				const response = await fetch("/api/products");
 				const payload = await response.json().catch(() => ({}));
-				if (response.ok && Array.isArray(payload.products) && payload.products.length > 0) setMenuItems(payload.products);
+				if (!cancelled && response.ok && Array.isArray(payload.products) && payload.products.length > 0) setMenuItems(payload.products);
 			} catch { }
+			finally {
+				if (cancelled) return;
+				const remaining = Math.max(0, 1400 - (Date.now() - startedAt));
+				timeoutId = window.setTimeout(() => {
+					if (!cancelled) setIsLoadingProducts(false);
+				}, remaining);
+			}
 		};
 		void loadProducts();
+		return () => {
+			cancelled = true;
+			window.clearTimeout(timeoutId);
+		};
 	}, []);
 
 	useEffect(() => {
@@ -165,14 +181,28 @@ export default function MenusPage() {
 				<div>
 					<nav className="pos-categories menu-categories-centered" aria-label="Menu categories">{categories.map((category) => <button aria-pressed={activeCategory === category} className={activeCategory === category ? "active" : undefined} key={category} type="button" onClick={() => { setActiveCategory(category); if (category === "All") setSearch(""); setCurrentPage(1); }}>{category}</button>)}</nav>
 
-					<div className="pos-menu-grid">
-						{paginatedItems.map((item) => <Card className="pos-menu-card" key={item.id}>
+					<div className="pos-menu-grid" aria-busy={isLoadingProducts} aria-live="polite">
+						{isLoadingProducts ? Array.from({ length: isMobile ? 6 : 8 }, (_, index) => (
+							<Card className="pos-menu-card pos-menu-card-skeleton" key={`menu-skeleton-${index}`} aria-hidden="true">
+								<div className="pos-menu-card-desktop">
+									<div className="pos-menu-art"><Skeleton className="menu-skeleton-image" /></div>
+									<Skeleton className="pos-menu-price menu-skeleton-price" />
+									<CardContent className="pos-menu-card-copy">
+										<div className="pos-menu-card-bottom">
+											<Skeleton className="menu-skeleton-title" />
+											<Skeleton className="menu-skeleton-button" />
+										</div>
+									</CardContent>
+								</div>
+								<div className="pos-menu-art pos-menu-card-mobile"><Skeleton className="menu-skeleton-image" /></div>
+							</Card>
+						)) : paginatedItems.map((item) => <Card className="pos-menu-card" key={item.id}>
 							<div className="pos-menu-card-desktop"><div className="pos-menu-art"><img src={item.image} alt={item.name} /></div><strong className="pos-menu-price">₱{item.price.toFixed(2)}</strong><CardContent className="pos-menu-card-copy"><div className="pos-menu-card-top">{item.tag && <b>{item.tag}</b>}</div><div className="pos-menu-card-bottom"><CardHeader className="p-0"><CardTitle><h2>{item.name}</h2></CardTitle></CardHeader><Button aria-label={order[item.id] ? `Add another ${item.name} to cart` : `Add ${item.name} to cart`} aria-pressed={Boolean(order[item.id])} className={order[item.id] ? "product-added" : undefined} size="icon" type="button" onClick={() => updateQuantity(item.id, 1)}>{order[item.id] ? <CheckCircle2 size={18} /> : <Plus size={18} />}</Button></div></CardContent></div>
 							<button className="pos-menu-art pos-menu-card-mobile" type="button" aria-label={`View details for ${item.name}`} onClick={() => setSelectedMenuItem(item)}><img src={item.image} alt={item.name} /><span className="pos-menu-name-badge">{item.name}</span></button>
 						</Card>)}
 					</div>
-					{totalPages > 1 && <nav className="pos-pagination" aria-label="Product pages"><button aria-label="Previous product page" disabled={safePage === 1} type="button" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}><ChevronLeft size={16} /></button><span aria-live="polite">Page {safePage} of {totalPages}</span><button aria-label="Next product page" disabled={safePage === totalPages} type="button" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}><ChevronRight size={16} /></button></nav>}
-					{visibleItems.length === 0 && <div className="products-empty-state menu-products-empty-state"><div className="products-empty-art"><img src="/coffees/teacup.png" alt="" /></div><strong>No coffee found</strong><p>Try another search or choose a different category.</p></div>}
+					{!isLoadingProducts && totalPages > 1 && <nav className="pos-pagination" aria-label="Product pages"><button aria-label="Previous product page" disabled={safePage === 1} type="button" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}><ChevronLeft size={16} /></button><span aria-live="polite">Page {safePage} of {totalPages}</span><button aria-label="Next product page" disabled={safePage === totalPages} type="button" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}><ChevronRight size={16} /></button></nav>}
+					{!isLoadingProducts && visibleItems.length === 0 && <div className="products-empty-state menu-products-empty-state"><div className="products-empty-art"><img src="/coffees/teacup.png" alt="" /></div><strong>No coffee found</strong><p>Try another search or choose a different category.</p></div>}
 				</div>
 
 				<Card className={`pos-order-panel${isOrderOpen ? " is-open" : ""}${dragStartY !== null ? " is-dragging" : ""}`} style={isOrderOpen ? { transform: `translateY(${dragOffset}px)` } : undefined}>

@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
 	if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return NextResponse.json({ error: "Supabase configuration is missing." }, { status: 500 });
 	try {
 		const user = await requireStaff();
-		const mine = request.nextUrl.searchParams.get("mine") === "true";
+		const mine = request.nextUrl.searchParams.get("mine") === "true" || user.app_metadata?.role === "cashier";
 		const cashierFilter = mine ? `&cashier_id=eq.${encodeURIComponent(user.id)}` : "";
 		const response = await fetch(`${SUPABASE_URL}/rest/v1/orders?select=*&order=created_at.desc${cashierFilter}`, { headers: serviceHeaders(), cache: "no-store" });
 		const result = await response.json().catch(() => ({}));

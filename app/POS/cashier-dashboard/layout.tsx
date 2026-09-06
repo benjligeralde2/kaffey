@@ -16,6 +16,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { createClient } from "@/lib/supabase/client";
+import { readSidebarCollapsed, writeSidebarCollapsed } from "@/lib/pos-sidebar";
 
 type ProductNotification = {
 	source?: "admin-product-save";
@@ -42,19 +43,20 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 		}
 		setIsSidebarCollapsed((collapsed) => {
 			const nextCollapsedState = !collapsed;
-			window.sessionStorage.setItem("kaffey-sidebar-collapsed", String(nextCollapsedState));
+			writeSidebarCollapsed(nextCollapsedState);
 			return nextCollapsedState;
 		});
 	};
 
 	useEffect(() => {
-		const storedState = window.sessionStorage.getItem("kaffey-sidebar-collapsed");
-		setIsSidebarCollapsed(storedState === "true");
+		const collapsed = readSidebarCollapsed();
+		setIsSidebarCollapsed(collapsed);
+		writeSidebarCollapsed(collapsed);
 	}, []);
 
 	useEffect(() => {
 		const loadOrderCount = async () => {
-			const response = await fetch("/api/orders", { cache: "no-store" });
+			const response = await fetch("/api/orders?mine=true", { cache: "no-store" });
 			const payload = await response.json().catch(() => ({}));
 			if (response.ok && Array.isArray(payload.orders)) setOrderCount(payload.orders.length);
 		};
@@ -164,7 +166,7 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 						<nav className="sidebar-nav">
 							<Link className={isCurrentPage("/POS/cashier-dashboard/menus") ? "active" : undefined} href="/POS/cashier-dashboard/menus" title="Menus"><LayoutDashboard size={17} /> Menus</Link>
 							<Link className={isCurrentPage("/POS/cashier-dashboard/orders") ? "active" : undefined} href="/POS/cashier-dashboard/orders" title="Orders"><ShoppingBag size={17} /> Orders <span className="sidebar-count">{orderCount}</span></Link>
-							<Link className={isCurrentPage("/POS/cashier-dashboard/history") ? "active" : undefined} href="/POS/cashier-dashboard/history" title="History"><ClipboardList size={17} /> History</Link>
+							<Link className={isCurrentPage("/POS/cashier-dashboard/history") ? "active" : undefined} href="/POS/cashier-dashboard/history" title="Transactions"><ClipboardList size={17} /> Transactions</Link>
 						</nav>
 					</div>
 					<div className="sidebar-section sidebar-bottom">
@@ -185,7 +187,7 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 			<nav className="mobile-bottom-nav" aria-label="Mobile cashier navigation">
 				<Link className={isCurrentPage("/POS/cashier-dashboard/menus") ? "active" : undefined} href="/POS/cashier-dashboard/menus"><LayoutDashboard size={18} /><span>Menus</span></Link>
 				<Link className={isCurrentPage("/POS/cashier-dashboard/orders") ? "active" : undefined} href="/POS/cashier-dashboard/orders"><ShoppingBag size={18} /><span>Orders</span><b>{orderCount}</b></Link>
-				<Link className={isCurrentPage("/POS/cashier-dashboard/history") ? "active" : undefined} href="/POS/cashier-dashboard/history"><ClipboardList size={18} /><span>History</span></Link>
+				<Link className={isCurrentPage("/POS/cashier-dashboard/history") ? "active" : undefined} href="/POS/cashier-dashboard/history"><ClipboardList size={18} /><span>Transactions</span></Link>
 				<Link className={isCurrentPage("/POS/cashier-dashboard/settings") ? "active" : undefined} href="/POS/cashier-dashboard/settings"><Settings size={18} /><span>Settings</span></Link>
 			</nav>
 		</main>

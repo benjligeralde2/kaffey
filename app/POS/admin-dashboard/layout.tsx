@@ -16,6 +16,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { readSidebarCollapsed, writeSidebarCollapsed } from "@/lib/pos-sidebar";
+
 export default function AdminDashboardLayout({ children }: { children: React.ReactNode }) {
 	const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 	const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -29,14 +31,15 @@ export default function AdminDashboardLayout({ children }: { children: React.Rea
 		}
 		setIsSidebarCollapsed((collapsed) => {
 			const nextCollapsedState = !collapsed;
-			window.sessionStorage.setItem("kaffey-sidebar-collapsed", String(nextCollapsedState));
+			writeSidebarCollapsed(nextCollapsedState);
 			return nextCollapsedState;
 		});
 	};
 
 	useEffect(() => {
-		const storedState = window.sessionStorage.getItem("kaffey-sidebar-collapsed");
-		setIsSidebarCollapsed(storedState === "true");
+		const collapsed = readSidebarCollapsed();
+		setIsSidebarCollapsed(collapsed);
+		writeSidebarCollapsed(collapsed);
 	}, []);
 
 	return (

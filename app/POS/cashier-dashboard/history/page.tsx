@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Clock3, Receipt, UserRound } from "lucide-react";
+import { CheckCircle2, Clock3, Search, UserRound } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,18 +33,26 @@ function getPeriodStart(period: HistoryPeriod) {
 export default function HistoryPage() {
 	const [transactions, setTransactions] = useState<Transaction[]>([]);
 	const [period, setPeriod] = useState<HistoryPeriod>("day");
+	const [search, setSearch] = useState("");
+	const [currentTime, setCurrentTime] = useState<Date | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState("");
+
+	useEffect(() => {
+		setCurrentTime(new Date());
+		const timer = window.setInterval(() => setCurrentTime(new Date()), 1000);
+		return () => window.clearInterval(timer);
+	}, []);
 
 	useEffect(() => {
 		const loadHistory = async () => {
 			try {
 				const response = await fetch("/api/orders?mine=true", { cache: "no-store" });
 				const payload = await response.json().catch(() => ({}));
-				if (!response.ok) throw new Error(payload.error || "Unable to load transaction history.");
+				if (!response.ok) throw new Error(payload.error || "Unable to load transactions.");
 				setTransactions(Array.isArray(payload.orders) ? payload.orders : []);
 			} catch (loadError) {
-				setError(loadError instanceof Error ? loadError.message : "Unable to load transaction history.");
+				setError(loadError instanceof Error ? loadError.message : "Unable to load transactions.");
 			} finally {
 				setIsLoading(false);
 			}
@@ -54,17 +62,37 @@ export default function HistoryPage() {
 
 	const visibleTransactions = useMemo(() => {
 		const start = getPeriodStart(period);
-		return transactions.filter((transaction) => new Date(transaction.time) >= start);
-	}, [period, transactions]);
+		const query = search.toLowerCase().trim();
+		return transactions.filter((transaction) => {
+			if (new Date(transaction.time) < start) return false;
+			if (!query) return true;
+			return `${transaction.id} ${transaction.name} ${transaction.items}`.toLowerCase().includes(query);
+		});
+	}, [period, search, transactions]);
 	const total = visibleTransactions.reduce((sum, transaction) => sum + transaction.amount, 0);
 	const cashierName = transactions[0]?.cashierName || "Current cashier";
 
 	return (
-		<section className="pos-catalog history-page" aria-labelledby="history-title">
-			<div className="orders-dashboard-card history-header-card">
-				<div className="orders-dashboard-content"><div className="orders-dashboard-heading"><div><p>Transaction history</p><span>{cashierName}</span></div></div><Receipt size={22} aria-hidden="true" /></div>
+		<section className="pos-catalog" aria-label="Transaction">
+			<div className="orders-dashboard-card menu-header-card">
+				<div className="orders-dashboard-content">
+					<div className="orders-dashboard-heading">
+						<div>
+							<p>Transaction</p>
+							<span>{currentTime?.toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}</span>
+						</div>
+					</div>
+					<div className="menu-search-wrap">
+						<label className="pos-search orders-search" htmlFor="transaction-search">
+							<Search size={16} />
+							<input id="transaction-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search transactions" />
+						</label>
+					</div>
+					<time className="orders-digital-clock" dateTime={currentTime?.toISOString()}>{currentTime?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
+				</div>
 			</div>
-			<div className="history-periods" role="tablist" aria-label="Transaction history period">
+			<div className="history-page">
+			<div className="history-periods" role="tablist" aria-label="Transaction period">
 				{(["day", "week", "month"] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={period === option} className={period === option ? "active" : undefined} onClick={() => setPeriod(option)}>{option === "day" ? "Daily" : option === "week" ? "Weekly" : "Monthly"}</button>)}
 			</div>
 			<div className="history-summary-grid">
@@ -72,11 +100,12 @@ export default function HistoryPage() {
 				<Card className="history-summary-card"><CardContent><span>Total collected</span><strong>₱{total.toFixed(2)}</strong></CardContent></Card>
 			</div>
 			<Card className="history-transactions-card">
-				<CardHeader><div><CardTitle>{period === "day" ? "Today" : period === "week" ? "This week" : "This month"}</CardTitle><p className="orders-list-count">Cashier transactions marked successful</p></div></CardHeader>
+				<CardHeader><div><CardTitle>{period === "day" ? "Today" : period === "week" ? "This week" : "This month"}</CardTitle><p className="orders-list-count">{cashierName} · successful transactions</p></div></CardHeader>
 				<CardContent className="history-transaction-list">
 					{isLoading ? <p className="accounts-empty">Loading transactions...</p> : error ? <p className="login-error" role="alert">{error}</p> : visibleTransactions.length === 0 ? <p className="accounts-empty">No successful transactions for this period.</p> : visibleTransactions.map((transaction) => <article className="history-transaction-row" key={transaction.id}><span className="history-transaction-avatar"><UserRound size={16} aria-hidden="true" /></span><div><strong>{transaction.name}</strong><span>{transaction.id} · {transaction.items}</span><small><Clock3 size={12} aria-hidden="true" /> {new Date(transaction.time).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</small></div><div className="history-transaction-result"><span><CheckCircle2 size={14} aria-hidden="true" /> Successful</span><strong>₱{transaction.amount.toFixed(2)}</strong></div></article>)}
 				</CardContent>
 			</Card>
+			</div>
 		</section>
 	);
 }

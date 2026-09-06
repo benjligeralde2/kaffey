@@ -24,7 +24,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       data-scroll-behavior="smooth"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col" suppressHydrationWarning>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(sessionStorage.getItem("kaffey-sidebar-collapsed")==="true")document.body.classList.add("sidebar-collapsed")}catch(e){}`,
+          }}
+        />
+        {children}
+      </body>
     </html>
   );
 }

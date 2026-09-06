@@ -1,16 +1,77 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, CreditCard, MoreHorizontal, Receipt, Search, UserRound, Utensils } from "lucide-react";
+import { ChevronLeft, ChevronRight, MoreHorizontal, Printer, Search, UserRound } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-type Order = { id: string; name: string; items: string; amount: number; time: string; channel: string; orderType: "Dine-in"; paymentMethod: "Cash" | "Card" | "GCash"; tableNumber: string; lineItems: { name: string; detail: string; quantity: number; price: number; image?: string }[] };
+type Order = { id: string; name: string; items: string; amount: number; time: string; channel: string; orderType: "Dine-in"; paymentMethod: "Cash" | "Card" | "GCash"; tableNumber: string; lineItems: { name: string; detail: string; quantity: number; price: number; image?: string }[]; cashierName?: string };
 
-const coffeeImage = "/coffees/Iced_Coffee_With_Milk_Splash_And_Ice_Cubes_PNG___TopPNG-removebg-preview.png";
-const menuImages: Record<string, string> = { "Iced latte": coffeeImage, "Matcha cloud": "/coffees/CASTLE101__%EF%B8%8F-removebg-preview.png", "Blueberry cream": "/coffees/download-removebg-preview.png", "Vanilla cold brew": coffeeImage, "Berry fizz": "/coffees/download-removebg-preview.png", "Citrus matcha": "/coffees/CASTLE101__%EF%B8%8F-removebg-preview.png", "Hazelnut tonic": coffeeImage };
+function formatReceiptStamp(time: string) {
+  const placedAt = new Date(time);
+  if (Number.isNaN(placedAt.getTime())) return { date: time, clock: "" };
+  return {
+    date: placedAt.toLocaleDateString([], { month: "2-digit", day: "2-digit", year: "numeric" }),
+    clock: placedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+  };
+}
+
+function peso(amount: number) {
+  return `₱${amount.toFixed(2)}`;
+}
+
+function ReceiptTicket({ order }: { order: Order }) {
+  const stamp = formatReceiptStamp(order.time);
+  const itemCount = order.lineItems.reduce((sum, item) => sum + item.quantity, 0);
+  return (
+    <div className="receipt-ticket">
+      <div className="receipt-stars">****************************</div>
+      <p className="receipt-shop">KAFFEY</p>
+      <p className="receipt-tagline">Coffee for the curious</p>
+      <p className="receipt-address">243 Wythe Avenue</p>
+      <p className="receipt-address">hello@kaffey.coffee</p>
+      <div className="receipt-stars">****************************</div>
+      <p className="receipt-center">SALES RECEIPT</p>
+      <div className="receipt-pairs">
+        <p><span>Date</span><span>{stamp.date}</span></p>
+        <p><span>Time</span><span>{stamp.clock}</span></p>
+        <p><span>Order</span><span>{order.id}</span></p>
+        <p><span>Cashier</span><span>{order.cashierName || "Cashier"}</span></p>
+        <p><span>Customer</span><span>{order.name}</span></p>
+      </div>
+      <hr className="receipt-dash" />
+      <div className="receipt-cols receipt-cols-head"><span>Qty</span><span>Item</span><span>Amount</span></div>
+      {order.lineItems.map((item, index) => (
+        <div className="receipt-line" key={`${item.name}-${index}`}>
+          <div className="receipt-cols">
+            <span>{item.quantity}</span>
+            <span>{item.name}</span>
+            <span>{peso(item.price * item.quantity)}</span>
+          </div>
+          <p className="receipt-unit">{item.quantity} @ {peso(item.price)}</p>
+        </div>
+      ))}
+      <hr className="receipt-dash" />
+      <div className="receipt-pairs">
+        <p><span>Item count</span><span>{itemCount}</span></p>
+        <p className="receipt-grand"><span>TOTAL</span><span>{peso(order.amount)}</span></p>
+      </div>
+      <hr className="receipt-dash" />
+      <div className="receipt-pairs">
+        <p><span>Payment</span><span>{order.paymentMethod.toUpperCase()}</span></p>
+        <p><span>Amount paid</span><span>{peso(order.amount)}</span></p>
+        <p><span>Change</span><span>{peso(0)}</span></p>
+      </div>
+      <hr className="receipt-dash" />
+      <p className="receipt-center">Thank you for visiting</p>
+      <p className="receipt-center">Please come again</p>
+      <p className="receipt-barcode">||| {order.id.replace("#", "")} |||</p>
+      <div className="receipt-stars">****************************</div>
+    </div>
+  );
+}
 function OrderSearchCard({ search, onSearch, currentTime }: { search: string; onSearch: (value: string) => void; currentTime: Date | null }) {
-  return <Card className="orders-dashboard-card"><div className="orders-dashboard-content"><div className="orders-dashboard-heading"><div><p>Order</p><span>{currentTime?.toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}</span></div></div><label className="pos-search orders-search" htmlFor="order-search"><Search size={16} /><input id="order-search" type="search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search orders" /></label><time className="orders-digital-clock" dateTime={currentTime?.toISOString()}>{currentTime?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></div></Card>;
+  return <div className="orders-dashboard-card menu-header-card"><div className="orders-dashboard-content"><div className="orders-dashboard-heading"><div><p>Order</p><span>{currentTime?.toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}</span></div></div><div className="menu-search-wrap"><label className="pos-search orders-search" htmlFor="order-search"><Search size={16} /><input id="order-search" type="search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search orders" /></label></div><time className="orders-digital-clock" dateTime={currentTime?.toISOString()}>{currentTime?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></div></div>;
 }
 
 function OrderList({ items, selectedId, onSelect, page, totalPages, onPageChange }: { items: Order[]; selectedId: string | null; onSelect: (id: string) => void; page: number; totalPages: number; onPageChange: (page: number) => void }) {
@@ -18,8 +79,29 @@ function OrderList({ items, selectedId, onSelect, page, totalPages, onPageChange
 }
 
 function OrderDetails({ order }: { order?: Order }) {
-  if (!order) return <Card className="order-detail-card order-detail-empty" aria-label="Select an order to view details" />;
-  return <Card className="order-detail-card"><CardHeader className="order-detail-header"><div><p className="pos-kicker">Customer details</p><CardTitle>{order.name}</CardTitle><small>{order.id} · Placed {order.time}</small></div><button className="orders-more-button" type="button" aria-label="More customer options"><MoreHorizontal size={18} /></button></CardHeader><CardContent className="order-detail-content"><div className="order-customer-line"><span className="customer-avatar"><UserRound size={15} /></span><span><strong>{order.name}</strong><small>Dine-in customer</small></span></div><div className="order-meta-grid"><span><Utensils size={14} /><small>Service</small><strong>{order.orderType}</strong></span><span><CreditCard size={14} /><small>Payment</small><strong>{order.paymentMethod}</strong></span><span><Receipt size={14} /><small>Table</small><strong>{order.tableNumber}</strong></span></div><div className="detail-items"><div className="detail-section-label"><span>Order items</span><span>{order.lineItems.length} items</span></div>{order.lineItems.map((item) => <div className="detail-item" key={item.name}><span className="detail-item-art"><img src={menuImages[item.name]} alt="" /></span><span><strong>{item.name}</strong><small>{item.quantity} × {item.detail}</small></span><b>₱{(item.price * item.quantity).toFixed(2)}</b></div>)}</div><div className="detail-total"><span>Total paid</span><strong>₱{order.amount.toFixed(2)}</strong></div></CardContent></Card>;
+  if (!order) {
+    return (
+      <div className="order-detail-panel order-detail-empty" aria-label="Select an order to view the receipt">
+        <div className="receipt-placeholder-frame">
+          <p className="receipt-placeholder">
+            <strong>RECEIPT</strong>
+            <span>displays here</span>
+          </p>
+          <p className="receipt-placeholder-hint">Select an order from Recent orders to preview and print it.</p>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="order-detail-panel">
+      <div className="order-receipt-print">
+        <ReceiptTicket order={order} />
+      </div>
+      <button className="order-action" type="button" onClick={() => window.print()}>
+        <Printer size={15} aria-hidden="true" /> Print receipt
+      </button>
+    </div>
+  );
 }
 
 export default function OrdersPage() {
@@ -32,23 +114,9 @@ export default function OrdersPage() {
   useEffect(() => { setCurrentTime(new Date()); const timer = window.setInterval(() => setCurrentTime(new Date()), 1000); return () => window.clearInterval(timer); }, []);
   useEffect(() => {
     const loadOrders = async () => {
-      const [ordersResponse, productsResponse] = await Promise.all([
-        fetch("/api/orders", { cache: "no-store" }),
-        fetch("/api/products", { cache: "no-store" }),
-      ]);
+      const ordersResponse = await fetch("/api/orders?mine=true", { cache: "no-store" });
       const ordersPayload = await ordersResponse.json().catch(() => ({}));
-      const productsPayload = await productsResponse.json().catch(() => ({}));
-      if (productsResponse.ok && Array.isArray(productsPayload.products)) {
-        productsPayload.products.forEach((product: { name: string; image: string }) => {
-          menuImages[product.name] = product.image;
-        });
-      }
-      if (ordersResponse.ok && Array.isArray(ordersPayload.orders)) {
-        ordersPayload.orders.forEach((order: Order) => order.lineItems.forEach((item) => {
-          if (item.image) menuImages[item.name] = item.image;
-        }));
-        setOrders(ordersPayload.orders);
-      }
+      if (ordersResponse.ok && Array.isArray(ordersPayload.orders)) setOrders(ordersPayload.orders);
     };
     const orderBroadcast = "BroadcastChannel" in window ? new BroadcastChannel("kaffey-orders") : null;
     const handleOrderRecorded = () => void loadOrders();
