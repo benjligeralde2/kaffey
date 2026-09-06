@@ -1,16 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-
+import { toastError, toastSuccess } from "@/components/ui/sonner";
 import { createClient } from "@/lib/supabase/client";
+
+function authErrorMessage(message: string) {
+	if (/invalid login credentials|invalid_credentials/i.test(message)) return "The credentials are incorrect.";
+	return message;
+}
 
 export default function LoginPage() {
 	const [showPassword, setShowPassword] = useState(false);
 	const [isSubmitting, setIsSubmitting] = useState(false);
-	const [errorMessage, setErrorMessage] = useState("");
 	const [isCheckingSession, setIsCheckingSession] = useState(true);
 	const [activeSessionRole, setActiveSessionRole] = useState<"admin" | "cashier" | null>(null);
 	const [isSigningOut, setIsSigningOut] = useState(false);
@@ -40,17 +44,17 @@ export default function LoginPage() {
 		const { error } = await createClient().auth.signOut();
 		if (error) {
 			setIsSigningOut(false);
-			setErrorMessage(error.message);
+			toastError(authErrorMessage(error.message));
 			return;
 		}
 		setActiveSessionRole(null);
 		setIsSigningOut(false);
+		toastSuccess("You have been signed out.");
 	}
 
 	async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 		setIsSubmitting(true);
-		setErrorMessage("");
 
 		const formData = new FormData(event.currentTarget);
 		try {
@@ -61,17 +65,20 @@ export default function LoginPage() {
 			});
 
 			if (error) {
-				setErrorMessage(error.message);
+				toastError(authErrorMessage(error.message));
+				formRef.current?.reset();
+				setIsSubmitting(false);
 				return;
 			}
 
 			const requestedPath = new URLSearchParams(window.location.search).get("next");
 			const defaultPath = data.user.app_metadata.role === "admin" ? "/POS/admin-dashboard" : "/POS/cashier-dashboard";
 			const redirectPath = requestedPath?.startsWith("/POS/") ? requestedPath : defaultPath;
+			formRef.current?.reset();
+			toastSuccess("Signed in successfully.");
 			router.push(redirectPath);
 		} catch (error) {
-			setErrorMessage(error instanceof Error ? error.message : "Unable to sign in right now.");
-		} finally {
+			toastError(error instanceof Error ? error.message : "Unable to sign in right now.");
 			formRef.current?.reset();
 			setIsSubmitting(false);
 		}
@@ -86,6 +93,13 @@ export default function LoginPage() {
 				</nav>
 			</header>
 
+			{(isCheckingSession || isSubmitting) && (
+				<div className="login-loading" role="status" aria-live="polite">
+					<span className="login-loading-ring" aria-hidden="true" />
+					<p>{isCheckingSession ? "Checking session" : "Signing you in"}</p>
+				</div>
+			)}
+
 			{!isCheckingSession && !activeSessionRole && <section className="login-hero" aria-labelledby="login-title">
 				<div className="login-content content-width">
 					<div className="login-art">
@@ -97,21 +111,22 @@ export default function LoginPage() {
 					<div className="login-panel">
 						<p className="eyebrow"><span className="eyebrow-line" /> Welcome back</p>
 						<h1 id="login-title">Good to<br /><em>see you.</em></h1>
-						<form ref={formRef} className="login-form" onSubmit={handleSubmit} autoComplete="new-password">
+						<form ref={formRef} className="login-form" onSubmit={handleSubmit} autoComplete="new-password" aria-busy={isSubmitting}>
 							<label htmlFor="email">Email address</label>
-							<input id="email" name="email" type="email" autoComplete="new-password" placeholder="you@kaffey.coffee" required />
+							<input id="email" name="email" type="email" autoComplete="new-password" placeholder="you@kaffey.coffee" required disabled={isSubmitting} />
 							<div className="login-label-row">
 								<label htmlFor="password">Password</label>
 								<a href="mailto:hello@kaffey.coffee?subject=Kaffey%20password%20help">Forgot password?</a>
 							</div>
 							<div className="password-input-wrap">
-								<input id="password" name="password" type={showPassword ? "text" : "password"} autoComplete="new-password" placeholder="Enter your password" required />
-								<button className="password-visibility" type="button" aria-label={showPassword ? "Hide password" : "Show password"} aria-pressed={showPassword} onClick={() => setShowPassword((visible) => !visible)}>
+								<input id="password" name="password" type={showPassword ? "text" : "password"} autoComplete="new-password" placeholder="Enter your password" required disabled={isSubmitting} />
+								<button className="password-visibility" type="button" aria-label={showPassword ? "Hide password" : "Show password"} aria-pressed={showPassword} onClick={() => setShowPassword((visible) => !visible)} disabled={isSubmitting}>
 									{showPassword ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}
 								</button>
 							</div>
-							{errorMessage ? <p className="login-error" role="alert">{errorMessage}</p> : null}
-							<button className="primary-button login-submit" type="submit" disabled={isSubmitting}>{isSubmitting ? "Signing in..." : "Sign in"} <span>↗</span></button>
+							<button className="primary-button login-submit" type="submit" disabled={isSubmitting}>
+								{isSubmitting ? <><Loader2 className="login-submit-spinner" aria-hidden="true" size={16} /> Signing in</> : <>Sign in <span>↗</span></>}
+							</button>
 						</form>
 						<p className="login-footer">New to the counter? <a href="mailto:hello@kaffey.coffee">Ask for access <span>↗</span></a></p>
 					</div>

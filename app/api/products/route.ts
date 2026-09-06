@@ -228,3 +228,52 @@ export async function PUT(request: NextRequest) {
 		return NextResponse.json({ error: error instanceof Error ? error.message : "Unexpected error updating product." }, { status: 500 });
 	}
 }
+
+async function deleteStoredProductImage(image: string) {
+	const publicPrefix = `${SUPABASE_URL}/storage/v1/object/public/${PRODUCT_IMAGE_BUCKET}/`;
+	if (!image.startsWith(publicPrefix)) return;
+
+	await fetch(`${SUPABASE_URL}/storage/v1/object/${PRODUCT_IMAGE_BUCKET}/${image.slice(publicPrefix.length)}`, {
+		method: "DELETE",
+		headers: getServiceHeaders(),
+	});
+}
+
+export async function DELETE(request: NextRequest) {
+	if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+		return NextResponse.json({ error: "Supabase configuration is missing." }, { status: 500 });
+	}
+
+	try {
+		await requireAdmin();
+		const body = await request.json().catch(() => ({}));
+		const id = typeof body?.id === "string" ? body.id.trim() : "";
+		if (!id) return NextResponse.json({ error: "Product ID is required." }, { status: 400 });
+
+		const existingResponse = await fetch(`${SUPABASE_URL}/rest/v1/products?id=eq.${encodeURIComponent(id)}&select=id,name,category,description,price,image,tag`, {
+			headers: getServiceHeaders(),
+			cache: "no-store",
+		});
+		const existingResult = await existingResponse.json().catch(() => ({}));
+		if (!existingResponse.ok) {
+			return NextResponse.json({ error: existingResult?.message || "Unable to load product." }, { status: existingResponse.status || 500 });
+		}
+
+		const existingProduct = Array.isArray(existingResult) ? existingResult[0] : existingResult;
+		if (!existingProduct) return NextResponse.json({ error: "Product was not found." }, { status: 404 });
+
+		const response = await fetch(`${SUPABASE_URL}/rest/v1/products?id=eq.${encodeURIComponent(id)}`, {
+			method: "DELETE",
+			headers: { ...getServiceHeaders(), Prefer: "return=minimal" },
+		});
+		if (!response.ok) {
+			const result = await response.json().catch(() => ({}));
+			return NextResponse.json({ error: result?.message || "Unable to delete product." }, { status: response.status || 500 });
+		}
+
+		await deleteStoredProductImage(existingProduct.image).catch(() => undefined);
+		return NextResponse.json({ product: mapProduct(existingProduct) });
+	} catch (error) {
+		return NextResponse.json({ error: error instanceof Error ? error.message : "Unexpected error deleting product." }, { status: 500 });
+	}
+}

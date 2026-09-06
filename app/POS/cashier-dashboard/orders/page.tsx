@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, MoreHorizontal, Printer, Search, UserRound }
 import { useEffect, useMemo, useState } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { subscribeToOrderUpdates } from "@/lib/order-sync-client";
 
 type Order = { id: string; name: string; items: string; amount: number; time: string; channel: string; orderType: "Dine-in"; paymentMethod: "Cash" | "Card" | "GCash"; tableNumber: string; lineItems: { name: string; detail: string; quantity: number; price: number; image?: string }[]; cashierName?: string };
 
@@ -118,14 +119,11 @@ export default function OrdersPage() {
       const ordersPayload = await ordersResponse.json().catch(() => ({}));
       if (ordersResponse.ok && Array.isArray(ordersPayload.orders)) setOrders(ordersPayload.orders);
     };
-    const orderBroadcast = "BroadcastChannel" in window ? new BroadcastChannel("kaffey-orders") : null;
-    const handleOrderRecorded = () => void loadOrders();
-    orderBroadcast?.addEventListener("message", handleOrderRecorded);
+    const unsubscribe = subscribeToOrderUpdates(() => {
+      void loadOrders();
+    });
     void loadOrders();
-    return () => {
-      orderBroadcast?.removeEventListener("message", handleOrderRecorded);
-      orderBroadcast?.close();
-    };
+    return unsubscribe;
   }, []);
   const filteredOrders = useMemo(() => orders.filter((order) => `${order.id} ${order.name} ${order.items}`.toLowerCase().includes(search.toLowerCase().trim())), [orders, search]);
   const totalPages = Math.max(1, Math.ceil(filteredOrders.length / ordersPerPage));

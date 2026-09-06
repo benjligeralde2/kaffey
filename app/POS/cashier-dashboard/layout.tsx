@@ -16,11 +16,14 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { createClient } from "@/lib/supabase/client";
-import { readSidebarCollapsed, writeSidebarCollapsed } from "@/lib/pos-sidebar";
+import { subscribeToOrderUpdates } from "@/lib/order-sync-client";
+import { readNotificationSoundEnabled } from "@/lib/pos-preferences";
+import { PROFILE_UPDATED_EVENT, loadPosProfile } from "@/lib/pos-profile";
+import { SIDEBAR_PREFERENCE_EVENT, readSidebarCollapsed, writeSidebarCollapsed } from "@/lib/pos-sidebar";
 
 type ProductNotification = {
 	source?: "admin-product-save";
-	action: "added" | "updated";
+	action: "added" | "updated" | "deleted";
 	productName: string;
 	details: string;
 	timestamp: number;
@@ -33,6 +36,7 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 	const [notifications, setNotifications] = useState<ProductNotification[]>([]);
 	const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 	const [orderCount, setOrderCount] = useState(0);
+	const [profile, setProfile] = useState({ name: "Cashier", initials: "CA" });
 	const notificationAnchorRef = useRef<HTMLDivElement>(null);
 	const pathname = usePathname();
 	const isCurrentPage = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
@@ -41,17 +45,26 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 			setIsSidebarOpen((open) => !open);
 			return;
 		}
-		setIsSidebarCollapsed((collapsed) => {
-			const nextCollapsedState = !collapsed;
-			writeSidebarCollapsed(nextCollapsedState);
-			return nextCollapsedState;
-		});
+		const nextCollapsedState = !isSidebarCollapsed;
+		setIsSidebarCollapsed(nextCollapsedState);
+		writeSidebarCollapsed(nextCollapsedState);
 	};
 
 	useEffect(() => {
-		const collapsed = readSidebarCollapsed();
-		setIsSidebarCollapsed(collapsed);
-		writeSidebarCollapsed(collapsed);
+		setIsSidebarCollapsed(readSidebarCollapsed());
+		const syncSidebar = () => setIsSidebarCollapsed(readSidebarCollapsed());
+		window.addEventListener(SIDEBAR_PREFERENCE_EVENT, syncSidebar);
+		return () => window.removeEventListener(SIDEBAR_PREFERENCE_EVENT, syncSidebar);
+	}, []);
+
+	useEffect(() => {
+		const loadProfile = async () => {
+			const nextProfile = await loadPosProfile();
+			if (nextProfile) setProfile({ name: nextProfile.name, initials: nextProfile.initials });
+		};
+		void loadProfile();
+		window.addEventListener(PROFILE_UPDATED_EVENT, loadProfile);
+		return () => window.removeEventListener(PROFILE_UPDATED_EVENT, loadProfile);
 	}, []);
 
 	useEffect(() => {
@@ -60,14 +73,11 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 			const payload = await response.json().catch(() => ({}));
 			if (response.ok && Array.isArray(payload.orders)) setOrderCount(payload.orders.length);
 		};
-		const orderBroadcast = "BroadcastChannel" in window ? new BroadcastChannel("kaffey-orders") : null;
-		const handleOrderRecorded = () => void loadOrderCount();
-		orderBroadcast?.addEventListener("message", handleOrderRecorded);
+		const unsubscribe = subscribeToOrderUpdates(() => {
+			void loadOrderCount();
+		});
 		void loadOrderCount();
-		return () => {
-			orderBroadcast?.removeEventListener("message", handleOrderRecorded);
-			orderBroadcast?.close();
-		};
+		return unsubscribe;
 	}, []);
 
 	useEffect(() => {
@@ -76,6 +86,7 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 		const showProductNotification = (notification: ProductNotification) => {
 			setProductNotification(notification);
 			setNotifications((current) => [notification, ...current.filter((item) => item.timestamp !== notification.timestamp)].slice(0, 10));
+			if (!readNotificationSoundEnabled()) return;
 			notificationSound.currentTime = 0;
 			void notificationSound.play().catch(() => undefined);
 		};
@@ -109,6 +120,10 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 			.on("postgres_changes", { event: "UPDATE", schema: "public", table: "products" }, (payload) => {
 				const product = payload.new as { name?: string; category?: string; price?: number };
 				if (product.name) showProductNotification({ action: "updated", productName: product.name, details: `${product.category || "Product"} · ₱${Number(product.price || 0).toFixed(2)}`, timestamp: Date.now() });
+			})
+			.on("postgres_changes", { event: "DELETE", schema: "public", table: "products" }, (payload) => {
+				const product = payload.old as { name?: string; category?: string; price?: number };
+				if (product.name) showProductNotification({ action: "deleted", productName: product.name, details: `${product.category || "Product"} · ₱${Number(product.price || 0).toFixed(2)}`, timestamp: Date.now() });
 			})
 			.subscribe((status, error) => {
 				if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") console.error("Product notification channel failed", error);
@@ -160,7 +175,7 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 
 			<div className="pos-layout">
 				<aside className="pos-sidebar" aria-label="Cashier navigation">
-					<div className="sidebar-profile"><div className="cashier-profile"><span className="cashier-avatar">JM</span><span><strong>Jamie Miller</strong><small>Cashier · On shift</small></span><ChevronDown size={16} /></div></div>
+					<div className="sidebar-profile"><div className="cashier-profile"><span className="cashier-avatar">{profile.initials}</span><span><strong>{profile.name}</strong><small>Cashier · On shift</small></span><ChevronDown size={16} /></div></div>
 					<div className="sidebar-section">
 						<p className="sidebar-label">Workspace</p>
 						<nav className="sidebar-nav">

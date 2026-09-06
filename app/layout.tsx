@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -31,7 +32,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             __html: `try{if(sessionStorage.getItem("kaffey-sidebar-collapsed")==="true")document.body.classList.add("sidebar-collapsed")}catch(e){}`,
           }}
         />
-        {children}
+        <Toaster>
+          {children}
+        </Toaster>
         <Analytics />
       </body>
     </html>

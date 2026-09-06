@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { createClient } from "@/lib/supabase/client";
+import { notifyOrderRecordedLocally, notifyOrderRecordedRemotely } from "@/lib/order-sync-client";
 
 type MenuItem = {
 	id: string;
@@ -138,11 +139,8 @@ export default function MenusPage() {
 			setCustomerName("");
 			setIsPaymentMethodModalOpen(false);
 			setPaymentMethod("Cash");
-			if ("BroadcastChannel" in window) {
-				const orderBroadcast = new BroadcastChannel("kaffey-orders");
-				orderBroadcast.postMessage({ type: "order-recorded" });
-				orderBroadcast.close();
-			}
+			notifyOrderRecordedLocally();
+			void notifyOrderRecordedRemotely();
 		} catch (error) {
 			setPaymentError(error instanceof Error ? error.message : "Unable to record payment.");
 		} finally {

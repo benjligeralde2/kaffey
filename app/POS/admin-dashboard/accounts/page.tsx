@@ -3,6 +3,8 @@
 import { ChevronLeft, ChevronRight, MoreHorizontal, Search, UserPlus, UserRound, X } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
+import { toastError, toastSuccess } from "@/components/ui/sonner";
+
 type Account = {
 	id: string;
 	initials: string;
@@ -87,8 +89,9 @@ export default function AdminAccountsPage() {
 					throw new Error(payload.error || "Unable to load accounts.");
 				}
 				setAccounts(Array.isArray(payload.accounts) ? payload.accounts : []);
-			} catch {
+			} catch (error) {
 				setAccounts([]);
+				toastError(error instanceof Error ? error.message : "Unable to load accounts.");
 			} finally {
 				setIsLoadingAccounts(false);
 			}
@@ -121,7 +124,9 @@ export default function AdminAccountsPage() {
 		setSubmitError("");
 
 		if (formData.password !== formData.confirmPassword) {
-			setSubmitError("Passwords do not match.");
+			const message = "Passwords do not match.";
+			setSubmitError(message);
+			toastError(message);
 			return;
 		}
 
@@ -156,8 +161,11 @@ export default function AdminAccountsPage() {
 			]);
 			setFormData({ fullName: "", email: "", password: "", confirmPassword: "" });
 			setIsCreateModalOpen(false);
+			toastSuccess("Cashier account created.");
 		} catch (error) {
-			setSubmitError(error instanceof Error ? error.message : "Unable to create cashier account.");
+			const message = error instanceof Error ? error.message : "Unable to create cashier account.";
+			setSubmitError(message);
+			toastError(message);
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -211,8 +219,11 @@ export default function AdminAccountsPage() {
 			setAdminPassword("");
 			setIsEditModalOpen(false);
 			setSelectedAccount(null);
+			toastSuccess("Account updated.");
 		} catch (error) {
-			setSubmitError(error instanceof Error ? error.message : "Unable to update account.");
+			const message = error instanceof Error ? error.message : "Unable to update account.";
+			setSubmitError(message);
+			toastError(message);
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -246,8 +257,11 @@ export default function AdminAccountsPage() {
 			setAdminPassword("");
 			setIsEditModalOpen(false);
 			setSelectedAccount(null);
+			toastSuccess("Account deleted.");
 		} catch (error) {
-			setSubmitError(error instanceof Error ? error.message : "Unable to delete account.");
+			const message = error instanceof Error ? error.message : "Unable to delete account.";
+			setSubmitError(message);
+			toastError(message);
 		} finally {
 			setIsSubmitting(false);
 		}

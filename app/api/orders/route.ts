@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { ORDER_SYNC_CHANNEL, ORDER_SYNC_EVENT } from "@/lib/order-sync";
 import { createClient } from "@/lib/supabase/server";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -34,18 +35,34 @@ async function requireStaff() {
 	return data.user;
 }
 
+async function broadcastOrderRecorded() {
+	if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return;
+	await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
+		method: "POST",
+		headers: serviceHeaders(),
+		body: JSON.stringify({
+			messages: [
+				{ topic: `realtime:${ORDER_SYNC_CHANNEL}`, event: ORDER_SYNC_EVENT, payload: { timestamp: Date.now() } },
+				{ topic: ORDER_SYNC_CHANNEL, event: ORDER_SYNC_EVENT, payload: { timestamp: Date.now() } },
+			],
+		}),
+	}).catch(() => undefined);
+}
+
 function mapOrder(order: OrderRow) {
+	const lineItems = Array.isArray(order.line_items) ? order.line_items : [];
 	return {
 		id: `#${String(order.order_number).padStart(5, "0")}`,
 		name: order.customer_name,
-		items: order.line_items.map((item) => item.name).join(", "),
+		items: lineItems.map((item) => item.name).join(", "),
 		amount: Number(order.amount),
 		time: order.created_at,
 		channel: "Dine-in order",
 		orderType: order.order_type,
 		paymentMethod: order.payment_method,
 		tableNumber: order.table_number,
-		lineItems: order.line_items,
+		lineItems,
+		cashierId: order.cashier_id || undefined,
 		cashierName: order.cashier_name || "Unknown cashier",
 	};
 }
@@ -83,6 +100,7 @@ export async function POST(request: NextRequest) {
 		const result = await response.json().catch(() => ({}));
 		if (!response.ok) return NextResponse.json({ error: result?.message || "Unable to record order." }, { status: response.status || 500 });
 		const order = Array.isArray(result) ? result[0] : result;
+		await broadcastOrderRecorded();
 		return NextResponse.json({ order: mapOrder(order) }, { status: 201 });
 	} catch (error) {
 		return NextResponse.json({ error: error instanceof Error ? error.message : "Unexpected error recording order." }, { status: 500 });

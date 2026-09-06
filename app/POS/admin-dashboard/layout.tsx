@@ -16,11 +16,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { readSidebarCollapsed, writeSidebarCollapsed } from "@/lib/pos-sidebar";
+import { PROFILE_UPDATED_EVENT, loadPosProfile } from "@/lib/pos-profile";
+import { SIDEBAR_PREFERENCE_EVENT, readSidebarCollapsed, writeSidebarCollapsed } from "@/lib/pos-sidebar";
 
 export default function AdminDashboardLayout({ children }: { children: React.ReactNode }) {
 	const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 	const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+	const [profile, setProfile] = useState({ name: "Admin", initials: "AD" });
 	const pathname = usePathname();
 	const isCurrentPage = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
@@ -29,17 +31,26 @@ export default function AdminDashboardLayout({ children }: { children: React.Rea
 			setIsSidebarOpen((open) => !open);
 			return;
 		}
-		setIsSidebarCollapsed((collapsed) => {
-			const nextCollapsedState = !collapsed;
-			writeSidebarCollapsed(nextCollapsedState);
-			return nextCollapsedState;
-		});
+		const nextCollapsedState = !isSidebarCollapsed;
+		setIsSidebarCollapsed(nextCollapsedState);
+		writeSidebarCollapsed(nextCollapsedState);
 	};
 
 	useEffect(() => {
-		const collapsed = readSidebarCollapsed();
-		setIsSidebarCollapsed(collapsed);
-		writeSidebarCollapsed(collapsed);
+		setIsSidebarCollapsed(readSidebarCollapsed());
+		const syncSidebar = () => setIsSidebarCollapsed(readSidebarCollapsed());
+		window.addEventListener(SIDEBAR_PREFERENCE_EVENT, syncSidebar);
+		return () => window.removeEventListener(SIDEBAR_PREFERENCE_EVENT, syncSidebar);
+	}, []);
+
+	useEffect(() => {
+		const loadProfile = async () => {
+			const nextProfile = await loadPosProfile();
+			if (nextProfile) setProfile({ name: nextProfile.name, initials: nextProfile.initials });
+		};
+		void loadProfile();
+		window.addEventListener(PROFILE_UPDATED_EVENT, loadProfile);
+		return () => window.removeEventListener(PROFILE_UPDATED_EVENT, loadProfile);
 	}, []);
 
 	return (
@@ -54,7 +65,7 @@ export default function AdminDashboardLayout({ children }: { children: React.Rea
 
 			<div className="pos-layout">
 				<aside className="pos-sidebar" aria-label="Admin navigation">
-					<div className="sidebar-profile"><div className="cashier-profile"><span className="cashier-avatar">AD</span><span><strong>Admin</strong><small>Administrator · On duty</small></span><ChevronDown size={16} /></div></div>
+					<div className="sidebar-profile"><div className="cashier-profile"><span className="cashier-avatar">{profile.initials}</span><span><strong>{profile.name}</strong><small>Administrator · On duty</small></span><ChevronDown size={16} /></div></div>
 					<div className="sidebar-section">
 						<p className="sidebar-label">Workspace</p>
 						<nav className="sidebar-nav">
