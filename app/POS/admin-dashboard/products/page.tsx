@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useFileUpload } from "@/hooks/use-file-upload";
+import { createClient } from "@/lib/supabase/client";
 
 type ProductCategory = "Coffee" | "Tea" | "Refreshers";
 
@@ -111,10 +112,19 @@ export default function AdminProductsPage() {
 			if (!response.ok) throw new Error(payload.error || "Unable to save product.");
 			if (payload.product) {
 				setProducts((current) => selectedProduct ? current.map((product) => product.id === selectedProduct.id ? payload.product : product) : [payload.product, ...current]);
+				const changedFields = selectedProduct ? [
+					selectedProduct.name !== payload.product.name && `Name: ${selectedProduct.name} -> ${payload.product.name}`,
+					selectedProduct.category !== payload.product.category && `Category: ${selectedProduct.category} -> ${payload.product.category}`,
+					selectedProduct.description !== payload.product.description && `Description: ${selectedProduct.description} -> ${payload.product.description}`,
+					selectedProduct.price !== payload.product.price && `Price: ₱${selectedProduct.price.toFixed(2)} -> ₱${payload.product.price.toFixed(2)}`,
+					selectedProduct.image !== payload.product.image && "Image: previous image -> new image",
+					selectedProduct.tag !== payload.product.tag && `Tag: ${selectedProduct.tag || "none"} -> ${payload.product.tag || "none"}`,
+				].filter(Boolean).join(" | ") : "new menu item";
 				const notification = {
 					source: "admin-product-save",
 					action: selectedProduct ? "updated" : "added",
 					productName: payload.product.name,
+					details: selectedProduct ? changedFields || "Product details unchanged" : `${payload.product.category} · ₱${payload.product.price.toFixed(2)} · ${payload.product.description}`,
 					timestamp: Date.now(),
 				} as const;
 				window.localStorage.setItem("kaffey-product-notification", JSON.stringify(notification));
@@ -123,6 +133,13 @@ export default function AdminProductsPage() {
 					channel.postMessage(notification);
 					channel.close();
 				}
+				const supabase = createClient();
+				const productChannel = supabase.channel("cashier-product-notifications");
+				productChannel.subscribe(async (status) => {
+					if (status !== "SUBSCRIBED") return;
+					await productChannel.send({ type: "broadcast", event: "product-updated", payload: notification });
+					await supabase.removeChannel(productChannel);
+				});
 			}
 			setFormData({ name: "", category: "Coffee", description: "", price: "", image: "", tag: "" });
 			setSelectedProduct(null);

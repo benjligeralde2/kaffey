@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { createClient } from "@/lib/supabase/client";
 
@@ -21,6 +21,7 @@ type ProductNotification = {
 	source?: "admin-product-save";
 	action: "added" | "updated";
 	productName: string;
+	details: string;
 	timestamp: number;
 };
 
@@ -30,6 +31,8 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 	const [productNotification, setProductNotification] = useState<ProductNotification | null>(null);
 	const [notifications, setNotifications] = useState<ProductNotification[]>([]);
 	const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+	const [orderCount, setOrderCount] = useState(0);
+	const notificationAnchorRef = useRef<HTMLDivElement>(null);
 	const pathname = usePathname();
 	const isCurrentPage = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 	const handleSidebarToggle = () => {
@@ -50,9 +53,29 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 	}, []);
 
 	useEffect(() => {
+		const loadOrderCount = async () => {
+			const response = await fetch("/api/orders", { cache: "no-store" });
+			const payload = await response.json().catch(() => ({}));
+			if (response.ok && Array.isArray(payload.orders)) setOrderCount(payload.orders.length);
+		};
+		const orderBroadcast = "BroadcastChannel" in window ? new BroadcastChannel("kaffey-orders") : null;
+		const handleOrderRecorded = () => void loadOrderCount();
+		orderBroadcast?.addEventListener("message", handleOrderRecorded);
+		void loadOrderCount();
+		return () => {
+			orderBroadcast?.removeEventListener("message", handleOrderRecorded);
+			orderBroadcast?.close();
+		};
+	}, []);
+
+	useEffect(() => {
+		const notificationSound = new Audio("/sounds/notification_sounds.mp3");
+		notificationSound.preload = "auto";
 		const showProductNotification = (notification: ProductNotification) => {
 			setProductNotification(notification);
 			setNotifications((current) => [notification, ...current.filter((item) => item.timestamp !== notification.timestamp)].slice(0, 10));
+			notificationSound.currentTime = 0;
+			void notificationSound.play().catch(() => undefined);
 		};
 		const handleProductNotification = (event: StorageEvent) => {
 			if (event.key !== "kaffey-product-notification" || !event.newValue) return;
@@ -73,15 +96,21 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 		const supabase = createClient();
 		const productChannel = supabase
 			.channel("cashier-product-notifications")
+			.on("broadcast", { event: "product-updated" }, (event) => {
+				const notification = event.payload as ProductNotification;
+				if (notification?.action && notification.productName) showProductNotification(notification);
+			})
 			.on("postgres_changes", { event: "INSERT", schema: "public", table: "products" }, (payload) => {
-				const product = payload.new as { name?: string };
-				if (product.name) showProductNotification({ action: "added", productName: product.name, timestamp: Date.now() });
+				const product = payload.new as { name?: string; category?: string; price?: number };
+				if (product.name) showProductNotification({ action: "added", productName: product.name, details: `${product.category || "Product"} · ₱${Number(product.price || 0).toFixed(2)}`, timestamp: Date.now() });
 			})
 			.on("postgres_changes", { event: "UPDATE", schema: "public", table: "products" }, (payload) => {
-				const product = payload.new as { name?: string };
-				if (product.name) showProductNotification({ action: "updated", productName: product.name, timestamp: Date.now() });
+				const product = payload.new as { name?: string; category?: string; price?: number };
+				if (product.name) showProductNotification({ action: "updated", productName: product.name, details: `${product.category || "Product"} · ₱${Number(product.price || 0).toFixed(2)}`, timestamp: Date.now() });
 			})
-			.subscribe();
+			.subscribe((status, error) => {
+				if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") console.error("Product notification channel failed", error);
+			});
 
 		window.addEventListener("storage", handleProductNotification);
 		return () => {
@@ -98,17 +127,29 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 		return () => window.clearTimeout(timer);
 	}, [productNotification]);
 
+	useEffect(() => {
+		const handleOutsideNotificationClick = (event: MouseEvent) => {
+			if (notificationAnchorRef.current && !notificationAnchorRef.current.contains(event.target as Node)) {
+				setIsNotificationsOpen(false);
+				setProductNotification(null);
+			}
+		};
+
+		document.addEventListener("mousedown", handleOutsideNotificationClick);
+		return () => document.removeEventListener("mousedown", handleOutsideNotificationClick);
+	}, []);
+
 	return (
 		<main className={`pos-page${isSidebarCollapsed ? " sidebar-collapsed" : ""}${isSidebarOpen ? " sidebar-open" : ""}`}>
 			<header className="pos-header">
 				<div className="pos-brand"><button className="sidebar-toggle header-sidebar-toggle" type="button" onClick={handleSidebarToggle} aria-label={isSidebarOpen ? "Close navigation" : isSidebarCollapsed ? "Expand sidebar" : "Minimize sidebar"} aria-expanded={isSidebarOpen || !isSidebarCollapsed}><Menu size={18} /></button><span className="wordmark-mark">K</span><span>kaffey<span className="wordmark-dot">.</span></span><span className="pos-badge">Counter 01</span></div>
 				<div className="pos-header-actions">
-					<div className="cashier-notification-anchor">
+					<div className="cashier-notification-anchor" ref={notificationAnchorRef}>
 						<button className="pos-icon-button" type="button" aria-label="Notifications" aria-expanded={isNotificationsOpen} onClick={() => setIsNotificationsOpen((open) => !open)}><Bell size={18} strokeWidth={1.8} /><span className="notification-dot" /></button>
-						{productNotification && !isNotificationsOpen && <div className="cashier-product-notification" role="status"><strong>Menu updated</strong><span>{productNotification.productName} was {productNotification.action}.</span></div>}
+						{productNotification && !isNotificationsOpen && <div className="cashier-product-notification" role="status"><strong>{productNotification.productName} {productNotification.action}</strong><span>{productNotification.details}</span></div>}
 						{isNotificationsOpen && <div className="cashier-notification-panel" role="region" aria-label="Notifications">
 							<div className="cashier-notification-panel-header"><strong>Notifications</strong><span>{notifications.length}</span></div>
-							{notifications.length > 0 ? <div className="cashier-notification-list">{notifications.map((notification) => <div className="cashier-notification-item" key={`${notification.timestamp}-${notification.productName}`}><span className="cashier-notification-icon"><Bell size={13} aria-hidden="true" /></span><span><strong>Menu updated</strong><small>{notification.productName} was {notification.action}.</small></span></div>)}</div> : <p className="cashier-notification-empty">No recent notifications</p>}
+							{notifications.length > 0 ? <div className="cashier-notification-list">{notifications.map((notification) => <div className="cashier-notification-item" key={`${notification.timestamp}-${notification.productName}`}><span className="cashier-notification-icon"><Bell size={13} aria-hidden="true" /></span><span><strong>{notification.productName} {notification.action}</strong><small>{notification.details}</small></span></div>)}</div> : <p className="cashier-notification-empty">No recent notifications</p>}
 						</div>}
 					</div>
 					<button className="pos-icon-button" type="button" aria-label="Messages"><MessageCircle size={18} strokeWidth={1.8} /></button>
@@ -122,7 +163,7 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 						<p className="sidebar-label">Workspace</p>
 						<nav className="sidebar-nav">
 							<Link className={isCurrentPage("/POS/cashier-dashboard/menus") ? "active" : undefined} href="/POS/cashier-dashboard/menus" title="Menus"><LayoutDashboard size={17} /> Menus</Link>
-							<Link className={isCurrentPage("/POS/cashier-dashboard/orders") ? "active" : undefined} href="/POS/cashier-dashboard/orders" title="Orders"><ShoppingBag size={17} /> Orders <span className="sidebar-count">1</span></Link>
+							<Link className={isCurrentPage("/POS/cashier-dashboard/orders") ? "active" : undefined} href="/POS/cashier-dashboard/orders" title="Orders"><ShoppingBag size={17} /> Orders <span className="sidebar-count">{orderCount}</span></Link>
 							<Link className={isCurrentPage("/POS/cashier-dashboard/history") ? "active" : undefined} href="/POS/cashier-dashboard/history" title="History"><ClipboardList size={17} /> History</Link>
 						</nav>
 					</div>
@@ -143,7 +184,7 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 			</div>
 			<nav className="mobile-bottom-nav" aria-label="Mobile cashier navigation">
 				<Link className={isCurrentPage("/POS/cashier-dashboard/menus") ? "active" : undefined} href="/POS/cashier-dashboard/menus"><LayoutDashboard size={18} /><span>Menus</span></Link>
-				<Link className={isCurrentPage("/POS/cashier-dashboard/orders") ? "active" : undefined} href="/POS/cashier-dashboard/orders"><ShoppingBag size={18} /><span>Orders</span><b>1</b></Link>
+				<Link className={isCurrentPage("/POS/cashier-dashboard/orders") ? "active" : undefined} href="/POS/cashier-dashboard/orders"><ShoppingBag size={18} /><span>Orders</span><b>{orderCount}</b></Link>
 				<Link className={isCurrentPage("/POS/cashier-dashboard/history") ? "active" : undefined} href="/POS/cashier-dashboard/history"><ClipboardList size={18} /><span>History</span></Link>
 				<Link className={isCurrentPage("/POS/cashier-dashboard/settings") ? "active" : undefined} href="/POS/cashier-dashboard/settings"><Settings size={18} /><span>Settings</span></Link>
 			</nav>

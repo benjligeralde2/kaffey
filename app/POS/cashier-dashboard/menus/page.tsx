@@ -32,12 +32,15 @@ export default function MenusPage() {
 	const [currentPage, setCurrentPage] = useState(1);
 	const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
 	const [order, setOrder] = useState<Record<string, number>>({});
+	const [customerName, setCustomerName] = useState("");
 	const [isOrderOpen, setIsOrderOpen] = useState(false);
 	const [isChargeModalOpen, setIsChargeModalOpen] = useState(false);
 	const [isPaymentMethodModalOpen, setIsPaymentMethodModalOpen] = useState(false);
 	const [isClearOrderModalOpen, setIsClearOrderModalOpen] = useState(false);
 	const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null);
 	const [paymentMethod, setPaymentMethod] = useState("Cash");
+	const [isRecordingPayment, setIsRecordingPayment] = useState(false);
+	const [paymentError, setPaymentError] = useState("");
 	const [dragStartY, setDragStartY] = useState<number | null>(null);
 	const [dragOffset, setDragOffset] = useState(0);
 	const [currentTime, setCurrentTime] = useState<Date | null>(null);
@@ -98,6 +101,39 @@ export default function MenusPage() {
 	const subtotal = orderItems.reduce((total, item) => total + item.price * order[item.id], 0);
 	const total = subtotal;
 
+	const recordCashPayment = async () => {
+		if (paymentMethod !== "Cash" || !customerName.trim() || !orderItems.length) return;
+		setIsRecordingPayment(true);
+		setPaymentError("");
+		try {
+			const response = await fetch("/api/orders", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					customerName,
+					amount: total,
+					paymentMethod: "Cash",
+					lineItems: orderItems.map((item) => ({ name: item.name, detail: item.category, quantity: order[item.id], price: item.price, image: item.image })),
+				}),
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(payload.error || "Unable to record payment.");
+			setOrder({});
+			setCustomerName("");
+			setIsPaymentMethodModalOpen(false);
+			setPaymentMethod("Cash");
+			if ("BroadcastChannel" in window) {
+				const orderBroadcast = new BroadcastChannel("kaffey-orders");
+				orderBroadcast.postMessage({ type: "order-recorded" });
+				orderBroadcast.close();
+			}
+		} catch (error) {
+			setPaymentError(error instanceof Error ? error.message : "Unable to record payment.");
+		} finally {
+			setIsRecordingPayment(false);
+		}
+	};
+
 	const updateQuantity = (id: string, change: number) => {
 		setOrder((currentOrder) => {
 			const nextQuantity = (currentOrder[id] || 0) + change;
@@ -141,19 +177,19 @@ export default function MenusPage() {
 
 				<Card className={`pos-order-panel${isOrderOpen ? " is-open" : ""}${dragStartY !== null ? " is-dragging" : ""}`} style={isOrderOpen ? { transform: `translateY(${dragOffset}px)` } : undefined}>
 					<div className="order-sheet-grab" onPointerDown={handleOrderDragStart} onPointerMove={handleOrderDragMove} onPointerUp={handleOrderDragEnd} aria-label="Drag down to close order summary"><span /></div>
-					<CardHeader className="order-panel-heading p-0"><div><p className="pos-kicker">Current order</p><CardTitle><h2>Order <span>#{orderItems.length ? "00482" : "—"}</span></h2></CardTitle></div><button className="clear-order" type="button" onClick={() => setIsClearOrderModalOpen(true)} disabled={!orderItems.length}><Trash2 size={14} /> Clear</button></CardHeader>
+					<CardHeader className="order-panel-heading p-0"><div><p className="pos-kicker">Current order</p><CardTitle><h2><input className="order-customer-name" type="text" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer name" aria-label="Customer name" required /></h2></CardTitle></div><button className="clear-order" type="button" onClick={() => setIsClearOrderModalOpen(true)} disabled={!orderItems.length}><Trash2 size={14} /> Clear</button></CardHeader>
 					<CardContent className="p-0">
 						<div className="order-items">{orderItems.length === 0 ? <div className="order-empty"><ShoppingBag size={23} /><p>Your order is empty</p><small>Add a drink to get started.</small></div> : orderItems.map((item) => <div className="order-item" key={item.id}><div className="order-item-image"><img src={item.image} alt="" /></div><div className="order-item-details"><strong>{item.name}</strong><small>{item.category}</small><span>₱{(item.price * order[item.id]).toFixed(2)}</span></div><div className="quantity-control"><button type="button" onClick={() => updateQuantity(item.id, -1)} aria-label={`Remove one ${item.name}`}><Minus size={12} /></button><span>{order[item.id]}</span><button type="button" onClick={() => updateQuantity(item.id, 1)} aria-label={`Add one ${item.name}`}><Plus size={12} /></button></div></div>)}{orderItems.length > 3 && <div className="order-scroll-indicator" aria-hidden="true"><ChevronDown size={18} /></div>}</div>
-						<div className="order-footer"><div className="order-totals"><div className="order-total"><span>Total</span><strong>₱{total.toFixed(2)}</strong></div></div><Button className="pay-button" type="button" disabled={!orderItems.length} onClick={() => setIsChargeModalOpen(true)}>Confirm Order <strong>₱{total.toFixed(2)}</strong></Button></div>
+						<div className="order-footer"><div className="order-totals"><div className="order-total"><span>Total</span><strong>₱{total.toFixed(2)}</strong></div></div><Button className="pay-button" type="button" disabled={!orderItems.length || !customerName.trim()} onClick={() => setIsChargeModalOpen(true)}>Confirm Order <strong>₱{total.toFixed(2)}</strong></Button></div>
 					</CardContent>
 				</Card>
 			</div>
 			{(isMobile || isTablet) && selectedMenuItem && <div className="menu-detail-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedMenuItem(null); }}><section className="menu-detail-modal" role="dialog" aria-modal="true" aria-labelledby="menu-detail-title"><button className="charge-modal-close" type="button" aria-label="Close product details" onClick={() => setSelectedMenuItem(null)}><X size={18} /></button><div className="menu-detail-image"><img src={selectedMenuItem.image} alt={selectedMenuItem.name} /></div><p className="pos-kicker">{selectedMenuItem.category}{selectedMenuItem.tag && ` · ${selectedMenuItem.tag}`}</p><h2 id="menu-detail-title">{selectedMenuItem.name}</h2><p className="menu-detail-description">{selectedMenuItem.description}</p><div className="menu-detail-footer"><strong>₱{selectedMenuItem.price.toFixed(2)}</strong><Button aria-label={`Add ${selectedMenuItem.name} to cart`} aria-pressed={Boolean(order[selectedMenuItem.id])} className={order[selectedMenuItem.id] ? "product-added" : undefined} size="icon" type="button" onClick={() => updateQuantity(selectedMenuItem.id, 1)}>{order[selectedMenuItem.id] ? <CheckCircle2 size={18} /> : <Plus size={18} />}</Button></div></section></div>}
-			{isClearOrderModalOpen && <div className="charge-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsClearOrderModalOpen(false); }}><section className="charge-modal clear-order-modal" role="dialog" aria-modal="true" aria-labelledby="clear-order-title"><button className="charge-modal-close" type="button" aria-label="Close clear order confirmation" onClick={() => setIsClearOrderModalOpen(false)}><X size={18} /></button><p className="pos-kicker">Current order</p><h2 id="clear-order-title">Clear this order?</h2><p className="clear-order-message">All items will be removed from the current order.</p><div className="clear-order-actions"><button type="button" onClick={() => setIsClearOrderModalOpen(false)}>Keep order</button><Button type="button" onClick={() => { setOrder({}); setIsClearOrderModalOpen(false); }}>Clear order</Button></div></section></div>}
+			{isClearOrderModalOpen && <div className="charge-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsClearOrderModalOpen(false); }}><section className="charge-modal clear-order-modal" role="dialog" aria-modal="true" aria-labelledby="clear-order-title"><button className="charge-modal-close" type="button" aria-label="Close clear order confirmation" onClick={() => setIsClearOrderModalOpen(false)}><X size={18} /></button><p className="pos-kicker">Current order</p><h2 id="clear-order-title">Clear this order?</h2><p className="clear-order-message">All items will be removed from the current order.</p><div className="clear-order-actions"><button type="button" onClick={() => setIsClearOrderModalOpen(false)}>Keep order</button><Button type="button" onClick={() => { setOrder({}); setCustomerName(""); setIsClearOrderModalOpen(false); }}>Clear order</Button></div></section></div>}
 			<button className="mobile-order-backdrop" type="button" aria-label="Close current order summary" onClick={() => setIsOrderOpen(false)} />
 			<button className={`mobile-order-trigger${isOrderOpen ? " is-hidden" : ""}`} type="button" aria-label="Open current order summary" onClick={() => setIsOrderOpen(true)}><ShoppingCart size={23} /><span>{orderItems.length}</span></button>
 			{isChargeModalOpen && <div className="charge-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsChargeModalOpen(false); }}><section className="charge-modal" role="dialog" aria-modal="true" aria-labelledby="charge-modal-title"><button className="charge-modal-close" type="button" aria-label="Close order confirmation" onClick={() => setIsChargeModalOpen(false)}><X size={18} /></button><p className="pos-kicker">Order summary</p><h2 id="charge-modal-title">Confirm Order</h2><p className="charge-modal-item-summary"><strong>{orderItems.length} {orderItems.length === 1 ? "item" : "items"}</strong><span>{orderItems.map((item) => `${order[item.id]} × ${item.name}`).join(" · ")}</span></p><div className="charge-modal-totals"><div><span>Subtotal</span><strong>₱{subtotal.toFixed(2)}</strong></div><div className="charge-modal-total"><span>Total</span><strong>₱{total.toFixed(2)}</strong></div></div><Button className="charge-confirm-button" type="button" onClick={() => { setIsChargeModalOpen(false); setIsPaymentMethodModalOpen(true); }}>Continue to payment <strong>₱{total.toFixed(2)}</strong></Button></section></div>}
-			{isPaymentMethodModalOpen && <div className="charge-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsPaymentMethodModalOpen(false); }}><section className="charge-modal payment-method-modal" role="dialog" aria-modal="true" aria-labelledby="payment-method-title"><button className="charge-modal-close" type="button" aria-label="Close payment options" onClick={() => setIsPaymentMethodModalOpen(false)}><X size={18} /></button><p className="pos-kicker">Payment method</p><h2 id="payment-method-title">How will they pay?</h2><div className="payment-methods" role="radiogroup" aria-label="Payment methods">{["Cash", "Card", "GCash"].map((method) => <button className={`payment-method-option${paymentMethod === method ? " selected" : ""}`} key={method} type="button" role="radio" aria-checked={paymentMethod === method} onClick={() => setPaymentMethod(method)}><span className="payment-method-icon">{method === "Cash" ? "₱" : method === "Card" ? "▣" : "G"}</span><span><strong>{method}</strong><small>{method === "Cash" ? "Collect cash at the table" : method === "Card" ? "Process through terminal" : "Scan customer QR code"}</small></span><i /></button>)}</div><div className="payment-method-total"><span>Amount due</span><strong>₱{total.toFixed(2)}</strong></div><Button className="charge-confirm-button" type="button" onClick={() => setIsPaymentMethodModalOpen(false)}>Record {paymentMethod} payment</Button></section></div>}
+			{isPaymentMethodModalOpen && <div className="charge-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsPaymentMethodModalOpen(false); }}><section className="charge-modal payment-method-modal" role="dialog" aria-modal="true" aria-labelledby="payment-method-title"><button className="charge-modal-close" type="button" aria-label="Close payment options" onClick={() => setIsPaymentMethodModalOpen(false)}><X size={18} /></button><p className="pos-kicker">Payment method</p><h2 id="payment-method-title">How will they pay?</h2><div className="payment-methods" role="radiogroup" aria-label="Payment methods">{["Cash", "Card", "GCash"].map((method) => { const isCash = method === "Cash"; return <button className={`payment-method-option${paymentMethod === method ? " selected" : ""}`} key={method} type="button" role="radio" aria-checked={paymentMethod === method} disabled={!isCash} onClick={() => setPaymentMethod(method)}><span className="payment-method-icon">{method === "Cash" ? "₱" : method === "Card" ? "▣" : "G"}</span><span><strong>{method}</strong><small>{isCash ? "Collect cash at the table" : "Coming soon"}</small></span><i /></button>; })}</div>{paymentError && <p className="payment-error" role="alert">{paymentError}</p>}<div className="payment-method-total"><span>Amount due</span><strong>₱{total.toFixed(2)}</strong></div><Button className="charge-confirm-button" type="button" disabled={isRecordingPayment} onClick={recordCashPayment}>{isRecordingPayment ? "Recording..." : "Record Cash payment"} <strong>₱{total.toFixed(2)}</strong></Button></section></div>}
 		</section>
 	);
 }
