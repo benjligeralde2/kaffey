@@ -1,13 +1,26 @@
 import { createClient } from "@/lib/supabase/client";
 import {
+	ORDER_ALERT_BROADCAST_CHANNEL,
+	ORDER_ALERT_CHANNEL,
+	ORDER_ALERT_EVENT,
+	ORDER_ALERT_STORAGE_KEY,
 	ORDER_BROADCAST_CHANNEL,
 	ORDER_STORAGE_KEY,
 	ORDER_SYNC_CHANNEL,
 	ORDER_SYNC_EVENT,
+	type OrderAlert,
 } from "@/lib/order-sync";
 
 const listeners = new Set<() => void>();
+const alertListeners = new Set<(alert: OrderAlert) => void>();
 let stopSharedSubscription: (() => void) | null = null;
+let stopAlertSubscription: (() => void) | null = null;
+
+function isOrderAlert(value: unknown): value is OrderAlert {
+	if (!value || typeof value !== "object") return false;
+	const alert = value as OrderAlert;
+	return (alert.type === "new-order" || alert.type === "order-finished") && typeof alert.customerName === "string" && typeof alert.timestamp === "number";
+}
 
 function notifyListeners() {
 	listeners.forEach((listener) => listener());
@@ -71,5 +84,54 @@ export function subscribeToOrderUpdates(onUpdate: () => void) {
 		if (listeners.size > 0 || !stopSharedSubscription) return;
 		stopSharedSubscription();
 		stopSharedSubscription = null;
+	};
+}
+
+function notifyAlertListeners(alert: OrderAlert) {
+	alertListeners.forEach((listener) => listener(alert));
+}
+
+function startAlertSubscription() {
+	const supabase = createClient();
+	const localChannel = "BroadcastChannel" in window ? new BroadcastChannel(ORDER_ALERT_BROADCAST_CHANNEL) : null;
+	const handleStorage = (event: StorageEvent) => {
+		if (event.key !== ORDER_ALERT_STORAGE_KEY || !event.newValue) return;
+		try {
+			const alert = JSON.parse(event.newValue) as OrderAlert;
+			if (isOrderAlert(alert)) notifyAlertListeners(alert);
+		} catch {
+			return;
+		}
+	};
+	const handleLocalAlert = (event: MessageEvent<OrderAlert>) => {
+		if (isOrderAlert(event.data)) notifyAlertListeners(event.data);
+	};
+	localChannel?.addEventListener("message", handleLocalAlert);
+	window.addEventListener("storage", handleStorage);
+	const alertChannel = supabase
+		.channel(ORDER_ALERT_CHANNEL, {
+			config: { broadcast: { ack: false, self: true }, private: false },
+		})
+		.on("broadcast", { event: ORDER_ALERT_EVENT }, (event) => {
+			if (isOrderAlert(event.payload)) notifyAlertListeners(event.payload);
+		})
+		.subscribe();
+
+	return () => {
+		localChannel?.removeEventListener("message", handleLocalAlert);
+		localChannel?.close();
+		window.removeEventListener("storage", handleStorage);
+		void supabase.removeChannel(alertChannel);
+	};
+}
+
+export function subscribeToOrderAlerts(onAlert: (alert: OrderAlert) => void) {
+	alertListeners.add(onAlert);
+	if (!stopAlertSubscription) stopAlertSubscription = startAlertSubscription();
+	return () => {
+		alertListeners.delete(onAlert);
+		if (alertListeners.size > 0 || !stopAlertSubscription) return;
+		stopAlertSubscription();
+		stopAlertSubscription = null;
 	};
 }

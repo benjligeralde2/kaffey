@@ -50,5 +50,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-	matcher: ["/POS/cashier-dashboard/:path*", "/POS/admin-dashboard/:path*"],
+	matcher: ["/POS/cashier-dashboard/:path*", "/POS/admin-dashboard/:path*", "/POS/kitchen", "/POS/kitchen/:path*"],
 };
