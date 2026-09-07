@@ -1818,3 +1818,15 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, *::-webkit-scrollbar, .pos-con
 .kitchen-ticket-on-process button { background: transparent; color: var(--slate); }
 .kitchen-ticket button:hover:not(:disabled) { text-decoration: underline; filter: none; }
 .kitchen-ticket button:disabled { cursor: not-allowed; opacity: .55; }
+.pwa-install-banner { align-items: center; background: #1f2b2c; border: 1px solid rgba(231,227,215,.16); border-radius: 18px; bottom: max(16px, env(safe-area-inset-bottom)); box-shadow: 0 18px 40px rgba(20, 25, 26, .28); color: #edf0ea; display: flex; gap: 16px; justify-content: space-between; left: 50%; max-width: min(560px, calc(100vw - 24px)); padding: 16px 16px 16px 20px; position: fixed; transform: translateX(-50%); width: calc(100vw - 24px); z-index: 80; }
+.pwa-install-copy .pos-kicker { color: var(--coral); margin-bottom: 4px; }
+.pwa-install-copy h2 { color: #fffaf7; font-family: Georgia, "Times New Roman", serif; font-size: 20px; font-weight: 400; letter-spacing: -.03em; line-height: 1.15; margin: 0 0 6px; }
+.pwa-install-copy p { color: rgba(237, 240, 234, .72); font-size: 13px; line-height: 1.5; margin: 0; }
+.pwa-install-copy svg { display: inline; margin: 0 2px -2px; vertical-align: text-bottom; }
+.pwa-install-actions { align-items: center; display: flex; flex-shrink: 0; gap: 8px; }
+.pwa-install-button { align-items: center; background: var(--coral); border: 0; border-radius: 999px; color: #fffaf7; cursor: pointer; display: inline-flex; font-size: 12px; font-weight: 700; gap: 6px; letter-spacing: .06em; padding: 11px 14px; text-transform: uppercase; }
+.pwa-install-dismiss { align-items: center; background: transparent; border: 0; color: rgba(237, 240, 234, .72); cursor: pointer; display: flex; padding: 8px; }
+@media (display-mode: standalone) {
+  .login-back-link { display: none; }
+  .pwa-install-banner { display: none; }
+}

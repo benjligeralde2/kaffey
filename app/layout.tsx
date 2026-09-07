@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
+import { PwaProvider } from "@/components/pwa-provider";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -15,8 +16,27 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  applicationName: "Kaffey",
   title: "Kaffey. Coffee for the curious.",
   description: "Small-batch coffee, honest food, and a corner of the city made for lingering.",
+  appleWebApp: {
+    capable: true,
+    title: "Kaffey",
+    statusBarStyle: "default",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  other: {
+    "apple-mobile-web-app-capable": "yes",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#263234",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -35,6 +55,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Toaster>
           {children}
         </Toaster>
+        <PwaProvider />
         <Analytics />
       </body>
     </html>
