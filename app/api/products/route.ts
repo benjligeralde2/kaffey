@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { PRODUCT_SYNC_CHANNEL, PRODUCT_SYNC_EVENT, type ProductChangeNotice } from "@/lib/product-sync";
 import { createClient } from "@/lib/supabase/server";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -118,6 +119,21 @@ function mapProduct(product: ProductRow) {
 	};
 }
 
+async function broadcastProductChange(notice: Omit<ProductChangeNotice, "source" | "timestamp">) {
+	if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return;
+	const payload: ProductChangeNotice = { source: "admin-product-save", timestamp: Date.now(), ...notice };
+	await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
+		method: "POST",
+		headers: getServiceHeaders(),
+		body: JSON.stringify({
+			messages: [
+				{ topic: `realtime:${PRODUCT_SYNC_CHANNEL}`, event: PRODUCT_SYNC_EVENT, payload },
+				{ topic: PRODUCT_SYNC_CHANNEL, event: PRODUCT_SYNC_EVENT, payload },
+			],
+		}),
+	}).catch(() => undefined);
+}
+
 export async function GET() {
 	if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
 		return NextResponse.json({ error: "Supabase configuration is missing." }, { status: 500 });
@@ -143,7 +159,7 @@ export async function GET() {
 			}
 		})) : [];
 
-		return NextResponse.json({ products: products.map(mapProduct) });
+		return NextResponse.json({ products: products.map(mapProduct) }, { headers: { "Cache-Control": "no-store" } });
 	} catch (error) {
 		return NextResponse.json({ error: error instanceof Error ? error.message : "Unexpected error loading products." }, { status: 500 });
 	}
@@ -182,7 +198,9 @@ export async function POST(request: NextRequest) {
 		}
 
 		const product = Array.isArray(result) ? result[0] : result;
-		return NextResponse.json({ product: mapProduct(product) }, { status: 201 });
+		const mapped = mapProduct(product);
+		await broadcastProductChange({ action: "added", productName: mapped.name, details: `${mapped.category} · ₱${mapped.price.toFixed(2)}` });
+		return NextResponse.json({ product: mapped }, { status: 201 });
 	} catch (error) {
 		return NextResponse.json({ error: error instanceof Error ? error.message : "Unexpected error saving product." }, { status: 500 });
 	}
@@ -223,7 +241,9 @@ export async function PUT(request: NextRequest) {
 
 		const product = Array.isArray(result) ? result[0] : result;
 		if (!product) return NextResponse.json({ error: "Product was not found." }, { status: 404 });
-		return NextResponse.json({ product: mapProduct(product) });
+		const mapped = mapProduct(product);
+		await broadcastProductChange({ action: "updated", productName: mapped.name, details: `${mapped.category} · ₱${mapped.price.toFixed(2)}` });
+		return NextResponse.json({ product: mapped });
 	} catch (error) {
 		return NextResponse.json({ error: error instanceof Error ? error.message : "Unexpected error updating product." }, { status: 500 });
 	}
@@ -272,7 +292,9 @@ export async function DELETE(request: NextRequest) {
 		}
 
 		await deleteStoredProductImage(existingProduct.image).catch(() => undefined);
-		return NextResponse.json({ product: mapProduct(existingProduct) });
+		const mapped = mapProduct(existingProduct);
+		await broadcastProductChange({ action: "deleted", productName: mapped.name, details: `${mapped.category} · ₱${mapped.price.toFixed(2)}` });
+		return NextResponse.json({ product: mapped });
 	} catch (error) {
 		return NextResponse.json({ error: error instanceof Error ? error.message : "Unexpected error deleting product." }, { status: 500 });
 	}

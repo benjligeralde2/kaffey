@@ -14,10 +14,10 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { StaffNotificationBell } from "@/components/pos/staff-notification-bell";
-import { createClient } from "@/lib/supabase/client";
 import { subscribeToOrderAlerts, subscribeToOrderUpdates } from "@/lib/order-sync-client";
 import { PROFILE_UPDATED_EVENT, loadPosProfile } from "@/lib/pos-profile";
 import { SIDEBAR_PREFERENCE_EVENT, readSidebarCollapsed, writeSidebarCollapsed } from "@/lib/pos-sidebar";
+import { subscribeToProductNotices } from "@/lib/product-sync-client";
 import { useStaffNotices } from "@/lib/use-staff-notices";
 
 export default function CashierDashboardLayout({ children }: { children: React.ReactNode }) {
@@ -26,6 +26,8 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 	const { toast, notices, isOpen: isNotificationsOpen, setIsOpen: setIsNotificationsOpen, anchorRef: notificationAnchorRef, pushNotice } = useStaffNotices();
 	const [orderCount, setOrderCount] = useState(0);
 	const [profileName, setProfileName] = useState("Cashier");
+	const [profileAvatar, setProfileAvatar] = useState("");
+	const [profileInitials, setProfileInitials] = useState("CA");
 	const pathname = usePathname();
 	const isCurrentPage = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 	const handleSidebarToggle = () => {
@@ -41,14 +43,25 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 	useEffect(() => {
 		setIsSidebarCollapsed(readSidebarCollapsed());
 		const syncSidebar = () => setIsSidebarCollapsed(readSidebarCollapsed());
+		const closeOverlayOffTablet = () => {
+			if (!window.matchMedia("(max-width: 1100px) and (min-width: 641px)").matches) setIsSidebarOpen(false);
+		};
 		window.addEventListener(SIDEBAR_PREFERENCE_EVENT, syncSidebar);
-		return () => window.removeEventListener(SIDEBAR_PREFERENCE_EVENT, syncSidebar);
+		window.addEventListener("resize", closeOverlayOffTablet);
+		return () => {
+			window.removeEventListener(SIDEBAR_PREFERENCE_EVENT, syncSidebar);
+			window.removeEventListener("resize", closeOverlayOffTablet);
+		};
 	}, []);
 
 	useEffect(() => {
 		const loadProfile = async () => {
 			const nextProfile = await loadPosProfile();
-			if (nextProfile) setProfileName(nextProfile.name);
+			if (nextProfile) {
+				setProfileName(nextProfile.name);
+				setProfileAvatar(nextProfile.avatarUrl);
+				setProfileInitials(nextProfile.initials);
+			}
 		};
 		void loadProfile();
 		window.addEventListener(PROFILE_UPDATED_EVENT, loadProfile);
@@ -69,67 +82,14 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 	}, []);
 
 	useEffect(() => {
-		type ProductNotification = {
-			source?: "admin-product-save";
-			action: "added" | "updated" | "deleted";
-			productName: string;
-			details: string;
-			timestamp: number;
-		};
-		const showProductNotification = (notification: ProductNotification) => {
+		return subscribeToProductNotices((notification) => {
 			pushNotice({
 				id: `product-${notification.productName}-${notification.action}-${notification.timestamp}`,
 				title: `${notification.productName} ${notification.action}`,
 				details: notification.details,
 				timestamp: notification.timestamp,
 			});
-		};
-		const handleProductNotification = (event: StorageEvent) => {
-			if (event.key !== "kaffey-product-notification" || !event.newValue) return;
-			try {
-				const notification = JSON.parse(event.newValue) as ProductNotification;
-				if (notification.source === "admin-product-save" && notification.action && notification.productName) showProductNotification(notification);
-			} catch {
-				return;
-			}
-		};
-		const productBroadcast = "BroadcastChannel" in window ? new BroadcastChannel("kaffey-product-notifications") : null;
-		const handleBroadcastNotification = (event: MessageEvent<ProductNotification>) => {
-			const notification = event.data;
-			if (notification?.source === "admin-product-save" && notification.action && notification.productName) showProductNotification(notification);
-		};
-		productBroadcast?.addEventListener("message", handleBroadcastNotification);
-
-		const supabase = createClient();
-		const productChannel = supabase
-			.channel("cashier-product-notifications")
-			.on("broadcast", { event: "product-updated" }, (event) => {
-				const notification = event.payload as ProductNotification;
-				if (notification?.action && notification.productName) showProductNotification(notification);
-			})
-			.on("postgres_changes", { event: "INSERT", schema: "public", table: "products" }, (payload) => {
-				const product = payload.new as { name?: string; category?: string; price?: number };
-				if (product.name) showProductNotification({ action: "added", productName: product.name, details: `${product.category || "Product"} · ₱${Number(product.price || 0).toFixed(2)}`, timestamp: Date.now() });
-			})
-			.on("postgres_changes", { event: "UPDATE", schema: "public", table: "products" }, (payload) => {
-				const product = payload.new as { name?: string; category?: string; price?: number };
-				if (product.name) showProductNotification({ action: "updated", productName: product.name, details: `${product.category || "Product"} · ₱${Number(product.price || 0).toFixed(2)}`, timestamp: Date.now() });
-			})
-			.on("postgres_changes", { event: "DELETE", schema: "public", table: "products" }, (payload) => {
-				const product = payload.old as { name?: string; category?: string; price?: number };
-				if (product.name) showProductNotification({ action: "deleted", productName: product.name, details: `${product.category || "Product"} · ₱${Number(product.price || 0).toFixed(2)}`, timestamp: Date.now() });
-			})
-			.subscribe((status, error) => {
-				if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") console.error("Product notification channel failed", error);
-			});
-
-		window.addEventListener("storage", handleProductNotification);
-		return () => {
-			window.removeEventListener("storage", handleProductNotification);
-			productBroadcast?.removeEventListener("message", handleBroadcastNotification);
-			productBroadcast?.close();
-			void supabase.removeChannel(productChannel);
-		};
+		});
 	}, [pushNotice]);
 
 	useEffect(() => {
@@ -145,7 +105,7 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 	}, [pushNotice]);
 
 	return (
-		<main className={`pos-page${isSidebarCollapsed ? " sidebar-collapsed" : ""}${isSidebarOpen ? " sidebar-open" : ""}`}>
+		<main className={`pos-page cashier-page${isSidebarCollapsed ? " sidebar-collapsed" : ""}${isSidebarOpen ? " sidebar-open" : ""}`}>
 			<header className="pos-header">
 				<div className="pos-brand"><button className="sidebar-toggle header-sidebar-toggle" type="button" onClick={handleSidebarToggle} aria-label={isSidebarOpen ? "Close navigation" : isSidebarCollapsed ? "Expand sidebar" : "Minimize sidebar"} aria-expanded={isSidebarOpen || !isSidebarCollapsed}><Menu size={18} /></button><span className="wordmark-mark">K</span><span>kaffey<span className="wordmark-dot">.</span></span><span className="pos-badge">Counter</span></div>
 				<div className="pos-header-actions">
@@ -155,12 +115,15 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 			</header>
 
 			<div className="pos-layout">
-				<aside className="pos-sidebar cashier-sidebar" aria-label="Cashier navigation">
+				<aside className="pos-sidebar cashier-sidebar" aria-label="Cashier navigation" onClick={(event) => {
+					if (!(event.target instanceof Element)) return;
+					if (event.target.closest("a") && window.matchMedia("(max-width: 1100px) and (min-width: 641px)").matches) setIsSidebarOpen(false);
+				}}>
 					<div className="sidebar-section">
 						<p className="sidebar-label">Workspace</p>
 						<nav className="sidebar-nav">
 							<Link className={isCurrentPage("/POS/cashier-dashboard/menus") ? "active" : undefined} href="/POS/cashier-dashboard/menus" title="Menus"><LayoutDashboard size={17} /> Menus</Link>
-							<Link className={isCurrentPage("/POS/cashier-dashboard/orders") ? "active" : undefined} href="/POS/cashier-dashboard/orders" title="Orders"><ShoppingBag size={17} /> Orders <span className="sidebar-count">{orderCount}</span></Link>
+							<Link className={isCurrentPage("/POS/cashier-dashboard/orders") ? "active" : undefined} href="/POS/cashier-dashboard/orders" title="Orders"><ShoppingBag size={17} /> Orders</Link>
 							<Link className={isCurrentPage("/POS/cashier-dashboard/history") ? "active" : undefined} href="/POS/cashier-dashboard/history" title="Transactions"><ClipboardList size={17} /> Transactions</Link>
 						</nav>
 					</div>
@@ -171,9 +134,9 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 							<a href="#" title="Help center"><HelpCircle size={17} /> Help center</a>
 						</nav>
 					</div>
-					<p className="sidebar-cashier-name">{profileName}</p>
+					<p className="sidebar-cashier-name">{profileAvatar ? <img src={profileAvatar} alt="" /> : <span className="sidebar-cashier-avatar">{profileInitials}</span>}{profileName}</p>
 				</aside>
-				<button className="sidebar-panel-backdrop" type="button" aria-label="Close navigation" onClick={() => setIsSidebarOpen(false)} />
+				<button className="sidebar-panel-backdrop" type="button" aria-label="Close navigation" onClick={() => { setIsSidebarOpen(false); setIsNotificationsOpen(false); }} />
 
 				<section className="pos-content" aria-label="Cashier workspace">
 					{children}

@@ -1,11 +1,12 @@
 "use client";
 
-import { Printer, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight, Printer } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { subscribeToOrderUpdates } from "@/lib/order-sync-client";
 
-type HistoryPeriod = "day" | "week" | "month";
 type Transaction = {
 	id: string;
 	name: string;
@@ -17,16 +18,10 @@ type Transaction = {
 	cashierName: string;
 };
 
-function getPeriodStart(period: HistoryPeriod) {
-	const start = new Date();
+function startOfMonth(value: Date) {
+	const start = new Date(value);
+	start.setDate(1);
 	start.setHours(0, 0, 0, 0);
-	if (period === "day") return start;
-	if (period === "month") {
-		start.setDate(1);
-		return start;
-	}
-	const day = start.getDay();
-	start.setDate(start.getDate() - (day === 0 ? 6 : day - 1));
 	return start;
 }
 
@@ -44,10 +39,219 @@ function formatStamp(time: string) {
 	};
 }
 
-function periodLabel(period: HistoryPeriod) {
-	if (period === "day") return "Today";
-	if (period === "week") return "This week";
-	return "This month";
+function localDateKey(value: Date | string) {
+	const date = value instanceof Date ? value : new Date(value);
+	if (Number.isNaN(date.getTime())) return "";
+	return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function weekdayLabel(date: Date) {
+	return date.toLocaleDateString([], { weekday: "short" });
+}
+
+function dateFromKey(key: string) {
+	const [year, month, date] = key.split("-").map(Number);
+	return new Date(year, month, date);
+}
+
+function calendarDays(now: Date) {
+	const first = startOfMonth(now);
+	const weekday = first.getDay();
+	const mondayOffset = weekday === 0 ? 6 : weekday - 1;
+	const start = new Date(first);
+	start.setDate(first.getDate() - mondayOffset);
+	return Array.from({ length: 42 }, (_, index) => {
+		const day = new Date(start);
+		day.setDate(start.getDate() + index);
+		return day;
+	});
+}
+
+function TransactionCalendar({
+	viewMonth,
+	today,
+	transactions,
+	selectedId,
+	focusedDayKey,
+	openDayKey,
+	onSelect,
+	onOpenDay,
+	onFocusDay,
+}: {
+	viewMonth: Date;
+	today: Date;
+	transactions: Transaction[];
+	selectedId: string | null;
+	focusedDayKey: string | null;
+	openDayKey: string | null;
+	onSelect: (id: string) => void;
+	onOpenDay: (key: string) => void;
+	onFocusDay: (key: string) => void;
+}) {
+	const days = calendarDays(viewMonth);
+	const todayKey = localDateKey(today);
+	const currentMonth = viewMonth.getMonth();
+	const byDay = useMemo(() => {
+		const groups = new Map<string, Transaction[]>();
+		for (const transaction of transactions) {
+			const key = localDateKey(transaction.time);
+			if (!key) continue;
+			const list = groups.get(key) ?? [];
+			list.push(transaction);
+			groups.set(key, list);
+		}
+		return groups;
+	}, [transactions]);
+
+	const daySales = openDayKey ? byDay.get(openDayKey) ?? [] : [];
+	const viewTransition = { duration: 0.24, ease: [0.22, 1, 0.36, 1] as const };
+
+	return (
+		<div className="history-calendar-stage">
+			<AnimatePresence mode="wait" initial={false}>
+				{openDayKey ? (
+					<motion.div
+						key={`day-${openDayKey}`}
+						className="history-day-view"
+						aria-label={`Transactions on ${dateFromKey(openDayKey).toLocaleDateString()}`}
+						initial={{ opacity: 0, x: 28 }}
+						animate={{ opacity: 1, x: 0 }}
+						exit={{ opacity: 0, x: 28 }}
+						transition={viewTransition}
+					>
+						{daySales.length ? (
+							<ul>
+								{daySales.map((sale) => {
+									const stamp = formatStamp(sale.time);
+									return (
+										<li key={sale.id}>
+											<button type="button" className={selectedId === sale.id ? "selected" : undefined} onClick={() => onSelect(sale.id)}>
+												<time>{stamp.clock}</time>
+												<span>
+													<strong>{sale.name}</strong>
+													<small>{sale.items}</small>
+												</span>
+												<em>{peso(sale.amount)}</em>
+											</button>
+										</li>
+									);
+								})}
+							</ul>
+						) : (
+							<p className="accounts-empty">No transactions on this day.</p>
+						)}
+					</motion.div>
+				) : (
+					<motion.div
+						key="calendar"
+						className="history-calendar"
+						role="grid"
+						aria-label="Transaction calendar"
+						initial={{ opacity: 0, x: -28 }}
+						animate={{ opacity: 1, x: 0 }}
+						exit={{ opacity: 0, x: -28 }}
+						transition={viewTransition}
+					>
+			<div className="history-calendar-weekdays" role="row">
+				{days.slice(0, 7).map((day) => (
+					<div className="history-calendar-weekday" role="columnheader" key={weekdayLabel(day)}>{weekdayLabel(day)}</div>
+				))}
+			</div>
+			<div className="history-calendar-days">
+				{days.map((day) => {
+					const key = localDateKey(day);
+					const sales = byDay.get(key) ?? [];
+					const extra = Math.max(0, sales.length - 3);
+					const opensDay = sales.length >= 4;
+					const isOutsideMonth = day.getMonth() !== currentMonth;
+					const hasSelected = focusedDayKey === key || sales.some((sale) => sale.id === selectedId);
+					const openOrSelect = () => {
+						if (opensDay) {
+							onOpenDay(key);
+							return;
+						}
+						onFocusDay(key);
+					};
+					return (
+						<div
+							className={`history-calendar-cell${key === todayKey ? " is-today" : ""}${hasSelected ? " is-selected" : ""}${isOutsideMonth ? " is-outside" : ""}${sales.length ? " has-sales" : ""}${opensDay ? " is-expandable" : " is-selectable"}`}
+							key={key}
+							role="gridcell"
+							onClick={opensDay ? () => onOpenDay(key) : () => onFocusDay(key)}
+						>
+							<button className="history-calendar-date" type="button" onClick={(event) => { event.stopPropagation(); openOrSelect(); }}>
+								<strong>{day.getDate()}</strong>
+							</button>
+							<ul>
+								{sales.slice(0, 3).map((sale) => (
+									<li key={sale.id}>
+										<button
+											type="button"
+											className={selectedId === sale.id && !opensDay ? "selected" : undefined}
+											onClick={(event) => {
+												event.stopPropagation();
+												if (opensDay) onOpenDay(key);
+												else onSelect(sale.id);
+											}}
+										>
+											<span>{sale.name}</span>
+											<em>{peso(sale.amount)}</em>
+										</button>
+									</li>
+								))}
+							</ul>
+							{extra > 0 ? (
+								<button className="history-calendar-more" type="button" onClick={() => onOpenDay(key)}>+{extra} more</button>
+							) : null}
+						</div>
+					);
+				})}
+			</div>
+					</motion.div>
+				)}
+			</AnimatePresence>
+		</div>
+	);
+}
+
+function ReceiptPreview({ transaction }: { transaction: Transaction }) {
+	const frameRef = useRef<HTMLDivElement>(null);
+	const ticketRef = useRef<HTMLDivElement>(null);
+	const [fit, setFit] = useState({ width: 280, height: 360, scale: 1 });
+
+	useLayoutEffect(() => {
+		const frame = frameRef.current;
+		const ticket = ticketRef.current;
+		if (!frame || !ticket) return;
+		const update = () => {
+			const previous = ticket.style.transform;
+			ticket.style.transform = "none";
+			const width = ticket.offsetWidth;
+			const height = ticket.offsetHeight;
+			ticket.style.transform = previous;
+			const scale = Math.min(1, frame.clientWidth / Math.max(width, 1), frame.clientHeight / Math.max(height, 1));
+			setFit({ width, height, scale: Number.isFinite(scale) && scale > 0 ? Math.max(0.48, scale) : 1 });
+		};
+		const observer = new ResizeObserver(update);
+		observer.observe(frame);
+		update();
+		return () => observer.disconnect();
+	}, [transaction.amount, transaction.id, transaction.lineItems.length]);
+
+	return (
+		<div className="history-receipt-preview">
+			<div className="history-receipt-fit" ref={frameRef}>
+				<div className="history-receipt-scaled" style={{ width: fit.width * fit.scale, height: fit.height * fit.scale }}>
+					<div className="order-receipt-print" ref={ticketRef} style={{ transform: `scale(${fit.scale})` }}>
+						<ReceiptTicket transaction={transaction} />
+					</div>
+				</div>
+			</div>
+			<button className="order-action" type="button" onClick={() => window.print()}>
+				<Printer size={15} aria-hidden="true" /> Print receipt
+			</button>
+		</div>
+	);
 }
 
 function ReceiptTicket({ transaction }: { transaction: Transaction }) {
@@ -99,9 +303,11 @@ function ReceiptTicket({ transaction }: { transaction: Transaction }) {
 
 export default function HistoryPage() {
 	const [transactions, setTransactions] = useState<Transaction[]>([]);
-	const [period, setPeriod] = useState<HistoryPeriod>("day");
-	const [search, setSearch] = useState("");
 	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const [openDayKey, setOpenDayKey] = useState<string | null>(null);
+	const [focusedDayKey, setFocusedDayKey] = useState<string | null>(null);
+	const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()));
+	const [isCompactLayout, setIsCompactLayout] = useState(false);
 	const [currentTime, setCurrentTime] = useState<Date | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState("");
@@ -109,7 +315,14 @@ export default function HistoryPage() {
 	useEffect(() => {
 		setCurrentTime(new Date());
 		const timer = window.setInterval(() => setCurrentTime(new Date()), 1000);
-		return () => window.clearInterval(timer);
+		const layout = window.matchMedia("(max-width: 1100px)");
+		const syncLayout = () => setIsCompactLayout(layout.matches);
+		syncLayout();
+		layout.addEventListener("change", syncLayout);
+		return () => {
+			window.clearInterval(timer);
+			layout.removeEventListener("change", syncLayout);
+		};
 	}, []);
 
 	useEffect(() => {
@@ -134,21 +347,58 @@ export default function HistoryPage() {
 	}, []);
 
 	const visibleTransactions = useMemo(() => {
-		const start = getPeriodStart(period);
-		const query = search.toLowerCase().trim();
+		const start = startOfMonth(viewMonth);
+		const end = new Date(start);
+		end.setMonth(end.getMonth() + 1);
 		return transactions.filter((transaction) => {
-			if (new Date(transaction.time) < start) return false;
-			if (!query) return true;
-			return `${transaction.id} ${transaction.name} ${transaction.items}`.toLowerCase().includes(query);
+			const placedAt = new Date(transaction.time);
+			return placedAt >= start && placedAt < end;
 		});
-	}, [period, search, transactions]);
+	}, [transactions, viewMonth]);
+	const shiftMonth = (offset: number) => {
+		setViewMonth((current) => {
+			const next = startOfMonth(current);
+			next.setMonth(next.getMonth() + offset);
+			return next;
+		});
+		setOpenDayKey(null);
+		setFocusedDayKey(null);
+	};
 
 	useEffect(() => {
+		if (openDayKey && !visibleTransactions.some((transaction) => localDateKey(transaction.time) === openDayKey)) {
+			setOpenDayKey(null);
+		}
+	}, [openDayKey, visibleTransactions]);
+	useEffect(() => {
+		if (isCompactLayout) {
+			if (selectedId && !visibleTransactions.some((transaction) => transaction.id === selectedId)) setSelectedId(null);
+			return;
+		}
+		if (focusedDayKey) {
+			const daySales = visibleTransactions.filter((transaction) => localDateKey(transaction.time) === focusedDayKey);
+			if (daySales.length === 0) {
+				setSelectedId(null);
+				return;
+			}
+			if (selectedId && daySales.some((sale) => sale.id === selectedId)) return;
+			setSelectedId(daySales[0].id);
+			return;
+		}
 		if (selectedId && visibleTransactions.some((transaction) => transaction.id === selectedId)) return;
 		setSelectedId(visibleTransactions[0]?.id ?? null);
-	}, [selectedId, visibleTransactions]);
+	}, [focusedDayKey, isCompactLayout, selectedId, visibleTransactions]);
+	const openDay = (key: string) => {
+		setOpenDayKey(key);
+		setFocusedDayKey(key);
+	};
+	const focusDay = (key: string) => {
+		const first = visibleTransactions.find((transaction) => localDateKey(transaction.time) === key);
+		setFocusedDayKey(key);
+		if (isCompactLayout && !first) return;
+		setSelectedId(first?.id ?? null);
+	};
 
-	const total = visibleTransactions.reduce((sum, transaction) => sum + transaction.amount, 0);
 	const selectedTransaction = visibleTransactions.find((transaction) => transaction.id === selectedId);
 
 	return (
@@ -161,110 +411,76 @@ export default function HistoryPage() {
 							<span>{currentTime?.toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}</span>
 						</div>
 					</div>
-					<div className="menu-search-wrap">
-						<label className="pos-search orders-search" htmlFor="transaction-search">
-							<Search size={16} />
-							<input id="transaction-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search transactions" />
-						</label>
+					<div className="history-header-summary">
+						<div className="history-month-nav">
+							<button type="button" aria-label="Previous month" onClick={() => shiftMonth(-1)}><ChevronLeft size={16} /></button>
+							<p>{viewMonth.toLocaleDateString([], { month: "long", year: "numeric" })}</p>
+							<button type="button" aria-label="Next month" onClick={() => shiftMonth(1)}><ChevronRight size={16} /></button>
+						</div>
+						<span>{visibleTransactions.length} successful sales</span>
 					</div>
 					<time className="orders-digital-clock" dateTime={currentTime?.toISOString()}>{currentTime?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
 				</div>
 			</div>
 
 			<div className="history-page">
-				<div className="history-toolbar">
-					<div className="history-periods" role="tablist" aria-label="Transaction period">
-						{(["day", "week", "month"] as const).map((option) => (
-							<button key={option} type="button" role="tab" aria-selected={period === option} className={period === option ? "active" : undefined} onClick={() => setPeriod(option)}>
-								{option === "day" ? "Daily" : option === "week" ? "Weekly" : "Monthly"}
-							</button>
-						))}
-					</div>
-					<div className="history-metrics">
-						<p><small>Sales</small><strong>{visibleTransactions.length}</strong></p>
-						<p><small>Collected</small><strong>{peso(total)}</strong></p>
-					</div>
-				</div>
-
 				<div className="history-layout">
 					<div className="history-ledger">
-						<div className="history-ledger-head">
-							<div>
-								<p>{periodLabel(period)}</p>
-								<span>{visibleTransactions.length} successful sales</span>
+						{openDayKey ? (
+							<div className="history-ledger-head">
+								<div>
+									<button className="history-calendar-back" type="button" onClick={() => setOpenDayKey(null)}>
+										<ChevronLeft size={16} aria-hidden="true" /> Back
+									</button>
+									<p>{dateFromKey(openDayKey).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</p>
+									<span>{visibleTransactions.filter((transaction) => localDateKey(transaction.time) === openDayKey).length} successful sales</span>
+								</div>
 							</div>
-						</div>
+						) : null}
 						<div className="history-table-wrap">
 							{isLoading ? (
 								<p className="accounts-empty">Loading transactions...</p>
 							) : error ? (
 								<p className="login-error" role="alert">{error}</p>
-							) : visibleTransactions.length === 0 ? (
-								<p className="accounts-empty">No successful transactions for this period.</p>
 							) : (
-								<table className="history-table">
-									<thead>
-										<tr>
-											<th>Time</th>
-											<th>Order</th>
-											<th>Customer</th>
-											<th>Items</th>
-											<th>Pay</th>
-											<th>Total</th>
-										</tr>
-									</thead>
-									<tbody>
-										{visibleTransactions.map((transaction) => {
-											const stamp = formatStamp(transaction.time);
-											return (
-												<tr
-													key={transaction.id}
-													className={selectedId === transaction.id ? "selected" : undefined}
-													tabIndex={0}
-													aria-selected={selectedId === transaction.id}
-													onClick={() => setSelectedId(transaction.id)}
-													onKeyDown={(event) => {
-														if (event.key === "Enter" || event.key === " ") {
-															event.preventDefault();
-															setSelectedId(transaction.id);
-														}
-													}}
-												>
-													<td>{stamp.clock}</td>
-													<td>{transaction.id}</td>
-													<td>{transaction.name}</td>
-													<td>{transaction.items}</td>
-													<td>{transaction.paymentMethod}</td>
-													<td>{peso(transaction.amount)}</td>
-												</tr>
-											);
-										})}
-									</tbody>
-								</table>
+								<TransactionCalendar
+									viewMonth={viewMonth}
+									today={currentTime ?? new Date()}
+									transactions={visibleTransactions}
+									selectedId={selectedId}
+									focusedDayKey={focusedDayKey}
+									openDayKey={openDayKey}
+									onSelect={(id) => {
+										setSelectedId(id);
+										const sale = visibleTransactions.find((transaction) => transaction.id === id);
+										if (sale) setFocusedDayKey(localDateKey(sale.time));
+									}}
+									onOpenDay={openDay}
+									onFocusDay={focusDay}
+								/>
 							)}
 						</div>
 					</div>
 
-					<aside className={`order-detail-panel${selectedTransaction ? "" : " order-detail-empty"}`} aria-label="Transaction receipt">
+					<aside className={`history-receipt-panel${selectedTransaction ? "" : " order-detail-empty"}`} aria-label="Transaction receipt">
 						{selectedTransaction ? (
-							<>
-								<div className="order-receipt-print">
-									<ReceiptTicket transaction={selectedTransaction} />
-								</div>
-								<button className="order-action" type="button" onClick={() => window.print()}>
-									<Printer size={15} aria-hidden="true" /> Print receipt
-								</button>
-							</>
+							<ReceiptPreview transaction={selectedTransaction} />
 						) : (
 							<div className="receipt-placeholder-frame">
 								<p className="receipt-placeholder">
 									<strong>RECEIPT</strong>
 									<span>displays here</span>
 								</p>
-								<p className="receipt-placeholder-hint">Select a sale from the ledger to preview and print it.</p>
+								<p className="receipt-placeholder-hint">{focusedDayKey && !selectedTransaction ? "No transactions on this day." : "Select a sale from the calendar to preview and print it."}</p>
 							</div>
 						)}
 					</aside>
+					<Sheet open={isCompactLayout && Boolean(selectedTransaction)} onOpenChange={(open) => { if (!open) setSelectedId(null); }}>
+						<SheetContent side="right" className="history-receipt-sheet" aria-label="Transaction receipt">
+							<SheetTitle className="sr-only">Receipt</SheetTitle>
+							{selectedTransaction ? <ReceiptPreview transaction={selectedTransaction} /> : null}
+						</SheetContent>
+					</Sheet>
 				</div>
 			</div>
 		</section>

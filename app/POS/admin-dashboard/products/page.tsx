@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { toastError, toastSuccess } from "@/components/ui/sonner";
 import { Input } from "@/components/ui/input";
 import { useFileUpload } from "@/hooks/use-file-upload";
-import { createClient } from "@/lib/supabase/client";
+import { notifyProductChangedLocally } from "@/lib/product-sync-client";
 
 type ProductCategory = "Coffee" | "Tea" | "Refreshers";
 
@@ -97,19 +97,7 @@ export default function AdminProductsPage() {
 
 	const notifyCashiers = (notification: { action: "added" | "updated" | "deleted"; productName: string; details: string }) => {
 		const payload = { source: "admin-product-save" as const, timestamp: Date.now(), ...notification };
-		window.localStorage.setItem("kaffey-product-notification", JSON.stringify(payload));
-		if ("BroadcastChannel" in window) {
-			const channel = new BroadcastChannel("kaffey-product-notifications");
-			channel.postMessage(payload);
-			channel.close();
-		}
-		const supabase = createClient();
-		const productChannel = supabase.channel("cashier-product-notifications");
-		productChannel.subscribe(async (status) => {
-			if (status !== "SUBSCRIBED") return;
-			await productChannel.send({ type: "broadcast", event: "product-updated", payload });
-			await supabase.removeChannel(productChannel);
-		});
+		notifyProductChangedLocally(payload);
 	};
 
 	const openAddProduct = () => {
