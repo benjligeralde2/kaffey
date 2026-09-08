@@ -1,11 +1,13 @@
 "use client";
 
-import { ArrowDownRight, ArrowUpRight, Coffee, ShoppingBag, Users } from "lucide-react";
+import { Coffee, ShoppingBag, Users } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from "recharts";
 import { useEffect, useMemo, useState } from "react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useBrewingReady } from "@/components/brewing-loader";
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
+import { tabletOrPhoneMedia } from "@/lib/breakpoints";
 import { subscribeToOrderUpdates } from "@/lib/order-sync-client";
 
 type SalesPeriod = "daily" | "weekly" | "monthly";
@@ -83,16 +85,6 @@ const buildBuckets = (period: SalesPeriod, now = new Date()): Bucket[] => {
 	});
 };
 
-const formatChange = (current: number, previous: number, comparisonLabel: string) => {
-	if (previous === 0 && current === 0) return { label: `No sales ${comparisonLabel}`, isDown: false };
-	if (previous === 0) return { label: `No comparable ${comparisonLabel}`, isDown: false };
-	const percent = ((current - previous) / previous) * 100;
-	return {
-		label: `${percent > 0 ? "+" : ""}${percent.toFixed(1)}% ${comparisonLabel}`,
-		isDown: percent < 0,
-	};
-};
-
 const formatRelativeTime = (time: string, now = Date.now()) => {
 	const timestamp = new Date(time).getTime();
 	if (Number.isNaN(timestamp)) return "";
@@ -116,6 +108,16 @@ export default function AdminDashboardPage() {
 	const [isLoadingOrders, setIsLoadingOrders] = useState(true);
 	const [accountSummary, setAccountSummary] = useState({ totalAccounts: 0, admins: 0, cashiers: 0 });
 	const [nowMs, setNowMs] = useState(() => Date.now());
+	const [isCompactLayout, setIsCompactLayout] = useState(false);
+	useBrewingReady(!isLoadingOrders);
+
+	useEffect(() => {
+		const layout = window.matchMedia(tabletOrPhoneMedia);
+		const syncLayout = () => setIsCompactLayout(layout.matches);
+		syncLayout();
+		layout.addEventListener("change", syncLayout);
+		return () => layout.removeEventListener("change", syncLayout);
+	}, []);
 
 	useEffect(() => {
 		const timer = window.setInterval(() => setNowMs(Date.now()), 30000);
@@ -168,16 +170,10 @@ export default function AdminDashboardPage() {
 		const now = new Date(nowMs);
 		const todayStart = startOfDay(now);
 		const todayEnd = addDays(todayStart, 1);
-		const weekStart = startOfWeek(now);
-		const lastWeekStart = addDays(weekStart, -7);
 		const today = summarize(orders, todayStart, todayEnd);
-		const thisWeek = summarize(orders, weekStart, addDays(weekStart, 7));
-		const lastWeek = summarize(orders, lastWeekStart, weekStart);
 		const recordedSales = orders.reduce((total, order) => total + order.amount, 0);
 		const recordedOrders = orders.length;
 		const recordedAverage = recordedOrders ? recordedSales / recordedOrders : 0;
-		const thisWeekAverage = thisWeek.orders ? thisWeek.sales / thisWeek.orders : 0;
-		const lastWeekAverage = lastWeek.orders ? lastWeek.sales / lastWeek.orders : 0;
 		const trailingWeekStart = addDays(todayEnd, -7);
 		const peakHour = Array.from({ length: 7 }, (_, index) => {
 			const start = addDays(trailingWeekStart, index);
@@ -226,19 +222,6 @@ export default function AdminDashboardPage() {
 			recordedSales,
 			todayOrders: today.orders,
 			recordedAverage,
-			salesChange: recordedOrders
-				? thisWeek.sales === 0 && lastWeek.sales === 0
-					? { label: `${recordedOrders.toLocaleString()} recorded orders`, isDown: false }
-					: formatChange(thisWeek.sales, lastWeek.sales, "vs last week")
-				: { label: "No recorded sales yet", isDown: false },
-			ordersChange: today.orders
-				? formatChange(today.orders, summarize(orders, addDays(todayStart, -7), addDays(todayEnd, -7)).orders, `from last ${todayStart.toLocaleDateString(undefined, { weekday: "long" })}`)
-				: { label: recordedOrders ? `${recordedOrders.toLocaleString()} recorded orders` : "No orders yet today", isDown: false },
-			averageChange: recordedOrders
-				? thisWeek.orders === 0 && lastWeek.orders === 0
-					? { label: "Across all recorded orders", isDown: false }
-					: formatChange(thisWeekAverage, lastWeekAverage, "vs last week")
-				: { label: "No recorded orders yet", isDown: false },
 			salesData: buildBuckets(salesPeriod, now).map((bucket) => ({ label: bucket.label, sales: summarize(orders, bucket.start, bucket.end).sales })),
 			peakHour,
 			productData,
@@ -251,10 +234,10 @@ export default function AdminDashboardPage() {
 		<section className="pos-catalog admin-dashboard" aria-labelledby="admin-dashboard-title">
 			<h1 id="admin-dashboard-title" className="accounts-header-accessible-title">Admin dashboard</h1>
 			<div className="admin-kpi-grid">
-				<Card className="admin-kpi-card"><CardContent><div className="admin-kpi-label"><span>Total sales</span><span className="currency-symbol">₱</span></div><strong>{isLoadingOrders ? "…" : peso(metrics.recordedSales)}</strong><small className={metrics.salesChange.isDown ? "is-down" : undefined}>{metrics.salesChange.isDown ? <ArrowDownRight size={13} /> : <ArrowUpRight size={13} />} {metrics.salesChange.label}</small></CardContent></Card>
-				<Card className="admin-kpi-card"><CardContent><div className="admin-kpi-label"><span>Orders today</span><ShoppingBag size={16} /></div><strong>{isLoadingOrders ? "…" : metrics.todayOrders.toLocaleString()}</strong><small className={metrics.ordersChange.isDown ? "is-down" : undefined}>{metrics.ordersChange.isDown ? <ArrowDownRight size={13} /> : <ArrowUpRight size={13} />} {metrics.ordersChange.label}</small></CardContent></Card>
-				<Card className="admin-kpi-card"><CardContent><div className="admin-kpi-label"><span>Average order</span><Coffee size={16} /></div><strong>{isLoadingOrders ? "…" : peso(metrics.recordedAverage)}</strong><small className={metrics.averageChange.isDown ? "is-down" : undefined}>{metrics.averageChange.isDown ? <ArrowDownRight size={13} /> : <ArrowUpRight size={13} />} {metrics.averageChange.label}</small></CardContent></Card>
-				<Card className="admin-kpi-card"><CardContent><div className="admin-kpi-label"><span>Active accounts</span><Users size={16} /></div><strong>{accountSummary.totalAccounts}</strong><small>{accountSummary.admins} administrators · {accountSummary.cashiers} cashiers</small></CardContent></Card>
+				<Card className="admin-kpi-card"><CardContent><div className="admin-kpi-label"><span>Total sales</span><span className="currency-symbol">₱</span></div><strong>{isLoadingOrders ? "…" : peso(metrics.recordedSales)}</strong></CardContent></Card>
+				<Card className="admin-kpi-card"><CardContent><div className="admin-kpi-label"><span>Orders today</span><ShoppingBag size={16} /></div><strong>{isLoadingOrders ? "…" : metrics.todayOrders.toLocaleString()}</strong></CardContent></Card>
+				<Card className="admin-kpi-card"><CardContent><div className="admin-kpi-label"><span>Average order</span><Coffee size={16} /></div><strong>{isLoadingOrders ? "…" : peso(metrics.recordedAverage)}</strong></CardContent></Card>
+				<Card className="admin-kpi-card"><CardContent><div className="admin-kpi-label"><span>Active accounts</span><Users size={16} /></div><strong>{accountSummary.totalAccounts}</strong></CardContent></Card>
 			</div>
 
 			<div className="admin-chart-grid">
@@ -268,6 +251,7 @@ export default function AdminDashboardPage() {
 				</Card>
 			</div>
 
+			{isCompactLayout ? null : (
 			<div className="admin-bottom-grid">
 				<Card className="admin-chart-card product-mix-card">
 					<CardHeader><CardTitle>Top 3 best sellers</CardTitle><CardDescription>Best-selling products from the past 7 days</CardDescription></CardHeader>
@@ -294,6 +278,7 @@ export default function AdminDashboardPage() {
 					</CardContent>
 				</Card>
 			</div>
+			)}
 		</section>
 	);
 }

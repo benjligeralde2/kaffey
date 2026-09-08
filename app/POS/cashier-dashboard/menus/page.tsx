@@ -4,8 +4,10 @@ import { CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Minus, Plus, Sear
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useBrewingReady } from "@/components/brewing-loader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { isPhoneWidth, isTabletWidth } from "@/lib/breakpoints";
 import { notifyOrderRecordedLocally, notifyOrderRecordedRemotely } from "@/lib/order-sync-client";
 import { subscribeToProductUpdates } from "@/lib/product-sync-client";
 
@@ -24,8 +26,9 @@ const subscribeToResize = (onStoreChange: () => void) => {
 	window.addEventListener("resize", onStoreChange);
 	return () => window.removeEventListener("resize", onStoreChange);
 };
-const getMobileSnapshot = () => window.innerWidth <= 640;
-const getTabletSnapshot = () => window.innerWidth >= 641 && window.innerWidth <= 1100;
+const getMobileSnapshot = () => isPhoneWidth(window.innerWidth);
+const getTabletSnapshot = () => isTabletWidth(window.innerWidth);
+const getNarrowTabletSnapshot = () => window.innerWidth >= 768 && window.innerWidth <= 900;
 const getServerSnapshot = () => false;
 
 export default function MenusPage() {
@@ -51,7 +54,9 @@ export default function MenusPage() {
 	const orderListRef = useRef<HTMLDivElement>(null);
 	const isMobile = useSyncExternalStore(subscribeToResize, getMobileSnapshot, getServerSnapshot);
 	const isTablet = useSyncExternalStore(subscribeToResize, getTabletSnapshot, getServerSnapshot);
-	const productsPerPage = isMobile ? 6 : isTablet ? 6 : 10;
+	const isNarrowTablet = useSyncExternalStore(subscribeToResize, getNarrowTabletSnapshot, getServerSnapshot);
+	const productsPerPage = isMobile || isNarrowTablet ? 6 : isTablet ? 8 : 10;
+	useBrewingReady(!isLoadingProducts);
 	useEffect(() => { setCurrentTime(new Date()); const timer = window.setInterval(() => setCurrentTime(new Date()), 1000); return () => window.clearInterval(timer); }, []);
 	useEffect(() => {
 		let cancelled = false;
@@ -110,6 +115,9 @@ export default function MenusPage() {
 		const categoryItems = activeCategory === "All" ? menuItems : menuItems.filter((item) => item.category === activeCategory);
 		return categoryItems.filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase()));
 	}, [activeCategory, menuItems, search]);
+	useEffect(() => {
+		setCurrentPage(1);
+	}, [productsPerPage]);
 	const totalPages = Math.max(1, Math.ceil(visibleItems.length / productsPerPage));
 	const safePage = Math.min(currentPage, totalPages);
 	const paginatedItems = visibleItems.slice((safePage - 1) * productsPerPage, safePage * productsPerPage);
@@ -197,7 +205,7 @@ export default function MenusPage() {
 	};
 
 	return (
-		<section className="pos-catalog" aria-label="Coffee menu">
+		<section className="pos-catalog menus-page" aria-label="Coffee menu">
 			<div className="orders-dashboard-card menu-header-card">
 				<div className="orders-dashboard-content">
 					<div className="orders-dashboard-heading">
@@ -211,21 +219,31 @@ export default function MenusPage() {
 							<button aria-pressed={activeCategory === category} className={activeCategory === category ? "active" : undefined} key={category} type="button" onClick={() => { setActiveCategory(category); if (category === "All") setSearch(""); setCurrentPage(1); }}>{category}</button>
 						))}
 					</nav>
-					<div className="menu-search-wrap">
-						<label className="pos-search orders-search" htmlFor="menu-search">
-							<Search size={16} />
-							<input id="menu-search" type="search" value={search} onChange={(event) => { setSearch(event.target.value); setCurrentPage(1); }} placeholder="Search the menu" />
-						</label>
-						{searchSuggestions.length > 0 && (
-							<div className="menu-search-suggestions" role="listbox" aria-label="Menu suggestions">
-								{searchSuggestions.map((item) => (
-									<button key={item.id} type="button" role="option" onClick={() => { setSearch(item.name); setCurrentPage(1); }}>
-										<span>{item.name}</span>
-										<small>{item.category}</small>
-									</button>
+					<div className="menu-header-tools">
+						<div className="menu-search-wrap">
+							<label className="pos-search orders-search" htmlFor="menu-search">
+								<Search size={16} />
+								<input id="menu-search" type="search" value={search} onChange={(event) => { setSearch(event.target.value); setCurrentPage(1); }} placeholder="Search the menu" />
+							</label>
+							{searchSuggestions.length > 0 && (
+								<div className="menu-search-suggestions" role="listbox" aria-label="Menu suggestions">
+									{searchSuggestions.map((item) => (
+										<button key={item.id} type="button" role="option" onClick={() => { setSearch(item.name); setCurrentPage(1); }}>
+											<span>{item.name}</span>
+											<small>{item.category}</small>
+										</button>
+									))}
+								</div>
+							)}
+						</div>
+						<label className="menu-filter-dropdown" htmlFor="menu-category-filter">
+							<select id="menu-category-filter" value={activeCategory} aria-label="Menu categories" onChange={(event) => { const category = event.target.value as (typeof categories)[number]; setActiveCategory(category); if (category === "All") setSearch(""); setCurrentPage(1); }}>
+								{categories.map((category) => (
+									<option key={category} value={category}>{category}</option>
 								))}
-							</div>
-						)}
+							</select>
+							<ChevronDown size={14} aria-hidden />
+						</label>
 					</div>
 					<time className="orders-digital-clock" dateTime={currentTime?.toISOString()}>{currentTime?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
 				</div>
@@ -233,7 +251,7 @@ export default function MenusPage() {
 			<div className="pos-catalog-layout">
 				<div className="pos-menu-column">
 					<div className="pos-menu-grid" aria-busy={isLoadingProducts} aria-live="polite">
-						{isLoadingProducts ? Array.from({ length: isMobile ? 6 : isTablet ? 6 : 10 }, (_, index) => (
+						{isLoadingProducts ? Array.from({ length: productsPerPage }, (_, index) => (
 							<Card className="pos-menu-card pos-menu-card-skeleton" key={`menu-skeleton-${index}`} aria-hidden="true">
 								<div className="pos-menu-card-desktop">
 									<div className="pos-menu-art"><Skeleton className="menu-skeleton-image" /></div>

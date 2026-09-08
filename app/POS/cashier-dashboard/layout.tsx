@@ -14,24 +14,24 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { StaffNotificationBell } from "@/components/pos/staff-notification-bell";
-import { subscribeToOrderAlerts, subscribeToOrderUpdates } from "@/lib/order-sync-client";
+import { subscribeToOrderAlerts } from "@/lib/order-sync-client";
 import { PROFILE_UPDATED_EVENT, loadPosProfile } from "@/lib/pos-profile";
 import { SIDEBAR_PREFERENCE_EVENT, readSidebarCollapsed, writeSidebarCollapsed } from "@/lib/pos-sidebar";
 import { subscribeToProductNotices } from "@/lib/product-sync-client";
+import { tabletOrPhoneMedia } from "@/lib/breakpoints";
 import { useStaffNotices } from "@/lib/use-staff-notices";
 
 export default function CashierDashboardLayout({ children }: { children: React.ReactNode }) {
 	const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 	const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 	const { toast, notices, isOpen: isNotificationsOpen, setIsOpen: setIsNotificationsOpen, anchorRef: notificationAnchorRef, pushNotice } = useStaffNotices();
-	const [orderCount, setOrderCount] = useState(0);
 	const [profileName, setProfileName] = useState("Cashier");
 	const [profileAvatar, setProfileAvatar] = useState("");
 	const [profileInitials, setProfileInitials] = useState("CA");
 	const pathname = usePathname();
 	const isCurrentPage = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 	const handleSidebarToggle = () => {
-		if (window.matchMedia("(max-width: 1100px)").matches) {
+		if (window.matchMedia(tabletOrPhoneMedia).matches) {
 			setIsSidebarOpen((open) => !open);
 			return;
 		}
@@ -43,14 +43,14 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 	useEffect(() => {
 		setIsSidebarCollapsed(readSidebarCollapsed());
 		const syncSidebar = () => setIsSidebarCollapsed(readSidebarCollapsed());
-		const closeOverlayOffTablet = () => {
-			if (!window.matchMedia("(max-width: 1100px) and (min-width: 641px)").matches) setIsSidebarOpen(false);
+		const closeOverlayOnDesktop = () => {
+			if (!window.matchMedia(tabletOrPhoneMedia).matches) setIsSidebarOpen(false);
 		};
 		window.addEventListener(SIDEBAR_PREFERENCE_EVENT, syncSidebar);
-		window.addEventListener("resize", closeOverlayOffTablet);
+		window.addEventListener("resize", closeOverlayOnDesktop);
 		return () => {
 			window.removeEventListener(SIDEBAR_PREFERENCE_EVENT, syncSidebar);
-			window.removeEventListener("resize", closeOverlayOffTablet);
+			window.removeEventListener("resize", closeOverlayOnDesktop);
 		};
 	}, []);
 
@@ -66,19 +66,6 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 		void loadProfile();
 		window.addEventListener(PROFILE_UPDATED_EVENT, loadProfile);
 		return () => window.removeEventListener(PROFILE_UPDATED_EVENT, loadProfile);
-	}, []);
-
-	useEffect(() => {
-		const loadOrderCount = async () => {
-			const response = await fetch("/api/orders?mine=true", { cache: "no-store" });
-			const payload = await response.json().catch(() => ({}));
-			if (response.ok && Array.isArray(payload.orders)) setOrderCount(payload.orders.length);
-		};
-		const unsubscribe = subscribeToOrderUpdates(() => {
-			void loadOrderCount();
-		});
-		void loadOrderCount();
-		return unsubscribe;
 	}, []);
 
 	useEffect(() => {
@@ -117,7 +104,7 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 			<div className="pos-layout">
 				<aside className="pos-sidebar cashier-sidebar" aria-label="Cashier navigation" onClick={(event) => {
 					if (!(event.target instanceof Element)) return;
-					if (event.target.closest("a") && window.matchMedia("(max-width: 1100px) and (min-width: 641px)").matches) setIsSidebarOpen(false);
+					if (event.target.closest("a") && window.matchMedia(tabletOrPhoneMedia).matches) setIsSidebarOpen(false);
 				}}>
 					<div className="sidebar-section">
 						<p className="sidebar-label">Workspace</p>
@@ -142,12 +129,6 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 					{children}
 				</section>
 			</div>
-			<nav className="mobile-bottom-nav" aria-label="Mobile cashier navigation">
-				<Link className={isCurrentPage("/POS/cashier-dashboard/menus") ? "active" : undefined} href="/POS/cashier-dashboard/menus"><LayoutDashboard size={18} /><span>Menus</span></Link>
-				<Link className={isCurrentPage("/POS/cashier-dashboard/orders") ? "active" : undefined} href="/POS/cashier-dashboard/orders"><ShoppingBag size={18} /><span>Orders</span><b>{orderCount}</b></Link>
-				<Link className={isCurrentPage("/POS/cashier-dashboard/history") ? "active" : undefined} href="/POS/cashier-dashboard/history"><ClipboardList size={18} /><span>Transactions</span></Link>
-				<Link className={isCurrentPage("/POS/cashier-dashboard/settings") ? "active" : undefined} href="/POS/cashier-dashboard/settings"><Settings size={18} /><span>Settings</span></Link>
-			</nav>
 		</main>
 	);
 }

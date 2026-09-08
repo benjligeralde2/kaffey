@@ -4,6 +4,8 @@ import { ChevronLeft, ChevronRight, MoreHorizontal, Search, UserPlus, UserRound,
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { toastError, toastSuccess } from "@/components/ui/sonner";
+import { isTabletWidth } from "@/lib/breakpoints";
+import { formatStaffRoleLabel, parseStaffWorkspaceRole } from "@/lib/pos-role";
 
 type Account = {
 	id: string;
@@ -31,7 +33,7 @@ const subscribeToResize = (onStoreChange: () => void) => {
 	window.addEventListener("resize", onStoreChange);
 	return () => window.removeEventListener("resize", onStoreChange);
 };
-const getTabletSnapshot = () => window.innerWidth >= 768 && window.innerWidth <= 1100;
+const getTabletSnapshot = () => isTabletWidth(window.innerWidth);
 const getServerSnapshot = () => false;
 
 export default function AdminAccountsPage() {
@@ -54,11 +56,13 @@ export default function AdminAccountsPage() {
 		email: "",
 		password: "",
 		confirmPassword: "",
+		role: "cashier" as "cashier" | "kitchen",
 	});
 	const [editFormData, setEditFormData] = useState({
 		fullName: "",
 		email: "",
 		password: "",
+		role: "cashier" as "cashier" | "kitchen",
 	});
 	const normalizedQuery = searchQuery.trim().toLowerCase();
 	const filteredAccounts = accounts.filter((account) =>
@@ -72,6 +76,7 @@ export default function AdminAccountsPage() {
 	const hasEditChanges = selectedAccount !== null && (
 		editFormData.fullName.trim() !== selectedAccount.name ||
 		editFormData.email.trim() !== selectedAccount.email ||
+		parseStaffWorkspaceRole(editFormData.role) !== parseStaffWorkspaceRole(selectedAccount.role) ||
 		editFormData.password.length > 0
 	);
 
@@ -101,11 +106,17 @@ export default function AdminAccountsPage() {
 	}, []);
 
 	const handleInputChange = (field: keyof typeof formData, value: string) => {
-		setFormData((current) => ({ ...current, [field]: value }));
+		setFormData((current) => ({
+			...current,
+			[field]: field === "role" ? (value === "kitchen" ? "kitchen" : "cashier") : value,
+		}));
 	};
 
 	const handleEditInputChange = (field: keyof typeof editFormData, value: string) => {
-		setEditFormData((current) => ({ ...current, [field]: value }));
+		setEditFormData((current) => ({
+			...current,
+			[field]: field === "role" ? (value === "kitchen" ? "kitchen" : "cashier") : value,
+		}));
 	};
 
 	const openEditAccount = (account: Account) => {
@@ -114,6 +125,7 @@ export default function AdminAccountsPage() {
 			fullName: account.name,
 			email: account.email,
 			password: "",
+			role: parseStaffWorkspaceRole(account.role),
 		});
 		setOpenActionMenuId(null);
 		setIsEditModalOpen(true);
@@ -139,31 +151,32 @@ export default function AdminAccountsPage() {
 					fullName: formData.fullName,
 					email: formData.email,
 					password: formData.password,
-					role: "cashier",
+					role: formData.role,
 				}),
 			});
 
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {
-				throw new Error(payload.error || "Unable to create cashier account.");
+				throw new Error(payload.error || "Unable to create account.");
 			}
 
+			const roleLabel = formatStaffRoleLabel(formData.role);
 			const initials = formData.fullName
 				.split(" ")
 				.filter(Boolean)
 				.slice(0, 2)
 				.map((part) => part[0]?.toUpperCase() ?? "")
-				.join("") || "CA";
+				.join("") || (formData.role === "kitchen" ? "KI" : "CA");
 
 			setAccounts((current) => [
-				{ id: payload.id || crypto.randomUUID(), initials, name: formData.fullName, email: formData.email, role: "Cashier", status: "Active" },
+				{ id: payload.id || crypto.randomUUID(), initials, name: formData.fullName, email: formData.email, role: roleLabel, status: "Active" },
 				...current,
 			]);
-			setFormData({ fullName: "", email: "", password: "", confirmPassword: "" });
+			setFormData({ fullName: "", email: "", password: "", confirmPassword: "", role: "cashier" });
 			setIsCreateModalOpen(false);
-			toastSuccess("Cashier account created.");
+			toastSuccess(`${roleLabel} account created.`);
 		} catch (error) {
-			const message = error instanceof Error ? error.message : "Unable to create cashier account.";
+			const message = error instanceof Error ? error.message : "Unable to create account.";
 			setSubmitError(message);
 			toastError(message);
 		} finally {
@@ -192,6 +205,7 @@ export default function AdminAccountsPage() {
 					fullName: editFormData.fullName,
 					email: editFormData.email,
 					password: editFormData.password,
+					role: editFormData.role,
 					adminPassword,
 				}),
 			});
@@ -201,18 +215,20 @@ export default function AdminAccountsPage() {
 				throw new Error(payload.error || "Unable to update account.");
 			}
 
+			const roleLabel = formatStaffRoleLabel(editFormData.role);
 			const updatedInitials = editFormData.fullName
 				.split(" ")
 				.filter(Boolean)
 				.slice(0, 2)
 				.map((part) => part[0]?.toUpperCase() ?? "")
-				.join("") || "CA";
+				.join("") || (editFormData.role === "kitchen" ? "KI" : "CA");
 
 			setAccounts((current) => current.map((account) => account.id === selectedAccount.id ? {
 				...account,
 				initials: updatedInitials,
 				name: editFormData.fullName,
 				email: editFormData.email,
+				role: roleLabel,
 			} : account));
 
 			setIsConfirmModalOpen(false);
@@ -358,7 +374,7 @@ export default function AdminAccountsPage() {
 							</div>
 							<dl className="account-preview-details">
 								<div><dt>Role</dt><dd>{selectedAccount.role}</dd></div>
-								<div><dt>Access</dt><dd>Payment and Orders</dd></div>
+								<div><dt>Access</dt><dd>{selectedAccount.role.toLowerCase() === "kitchen" ? "Kitchen tickets" : "Payment and Orders"}</dd></div>
 								<div><dt>Total sold</dt><dd>₱0.00</dd></div>
 							</dl>
 						</>
@@ -380,7 +396,7 @@ export default function AdminAccountsPage() {
 						<div className="account-modal-header">
 							<div>
 								<p className="pos-kicker">Team access</p>
-								<h2 id="create-account-title">Create Cashier Account</h2>
+								<h2 id="create-account-title">Create Account</h2>
 							</div>
 							<button type="button" className="charge-modal-close" aria-label="Close create account form" onClick={() => setIsCreateModalOpen(false)}>
 								<X size={16} aria-hidden="true" />
@@ -394,7 +410,14 @@ export default function AdminAccountsPage() {
 							</label>
 							<label>
 								<span>Email address</span>
-								<input type="email" value={formData.email} onChange={(event) => handleInputChange("email", event.target.value)} placeholder="cashier@kaffey.coffee" autoComplete="off" name="cashier-email" required />
+								<input type="email" value={formData.email} onChange={(event) => handleInputChange("email", event.target.value)} placeholder="staff@kaffey.coffee" autoComplete="off" name="staff-email" required />
+							</label>
+							<label>
+								<span>Account type</span>
+								<select value={formData.role} onChange={(event) => handleInputChange("role", event.target.value)} name="staff-role" required>
+									<option value="cashier">Cashier</option>
+									<option value="kitchen">Kitchen</option>
+								</select>
 							</label>
 							<label>
 								<span>Temporary password</span>
@@ -408,7 +431,7 @@ export default function AdminAccountsPage() {
 							{submitError ? <p className="account-modal-error" role="alert">{submitError}</p> : null}
 							<div className="account-modal-footer">
 								<button type="button" className="account-modal-secondary" onClick={() => setIsCreateModalOpen(false)}>Cancel</button>
-								<button type="submit" className="account-modal-primary" disabled={isSubmitting}>{isSubmitting ? "Creating..." : "Create cashier"}</button>
+								<button type="submit" className="account-modal-primary" disabled={isSubmitting}>{isSubmitting ? "Creating..." : `Create ${formatStaffRoleLabel(formData.role).toLowerCase()}`}</button>
 							</div>
 						</form>
 					</div>
@@ -427,7 +450,7 @@ export default function AdminAccountsPage() {
 						<div className="account-modal-header">
 							<div>
 								<p className="pos-kicker">Account details</p>
-								<h2 id="edit-account-title">Edit cashier</h2>
+								<h2 id="edit-account-title">Edit account</h2>
 							</div>
 							<button type="button" className="charge-modal-close" aria-label="Close edit account form" onClick={() => {
 								setIsEditModalOpen(false);
@@ -445,7 +468,14 @@ export default function AdminAccountsPage() {
 							</label>
 							<label>
 								<span>Email address</span>
-								<input type="email" value={editFormData.email} onChange={(event) => handleEditInputChange("email", event.target.value)} placeholder="cashier@kaffey.coffee" autoComplete="off" name="edit-cashier-email" required />
+								<input type="email" value={editFormData.email} onChange={(event) => handleEditInputChange("email", event.target.value)} placeholder="staff@kaffey.coffee" autoComplete="off" name="edit-staff-email" required />
+							</label>
+							<label>
+								<span>Account type</span>
+								<select value={editFormData.role} onChange={(event) => handleEditInputChange("role", event.target.value)} name="edit-staff-role" required>
+									<option value="cashier">Cashier</option>
+									<option value="kitchen">Kitchen</option>
+								</select>
 							</label>
 							<label>
 								<span>New password</span>
@@ -475,7 +505,7 @@ export default function AdminAccountsPage() {
 						<div className="account-modal-header">
 							<div>
 									<p className="pos-kicker">{confirmationAction === "delete" ? "Destructive action" : "Security check"}</p>
-									<h2 id="admin-confirm-title">{confirmationAction === "delete" ? "Delete cashier account" : "Confirm admin access"}</h2>
+									<h2 id="admin-confirm-title">{confirmationAction === "delete" ? "Delete account" : "Confirm admin access"}</h2>
 							</div>
 							<button type="button" className="charge-modal-close" aria-label="Close admin confirmation" onClick={() => {
 								setIsConfirmModalOpen(false);

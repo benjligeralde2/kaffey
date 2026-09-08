@@ -1,13 +1,21 @@
 "use client";
 
-import { Check, ChefHat, ChevronLeft, ChevronRight, Clock3, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Check, ChefHat, ChevronDown, ChevronLeft, ChevronRight, Clock3, Search } from "lucide-react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { Card, CardContent } from "@/components/ui/card";
+import { isPhoneWidth } from "@/lib/breakpoints";
 import { subscribeToOrderUpdates } from "@/lib/order-sync-client";
 
 import { ORDER_STATUSES, normalizeStatus, statusPillClass, type OrderStatus } from "@/lib/order-status";
 type StatusFilter = "all" | OrderStatus;
+
+const subscribeToResize = (onStoreChange: () => void) => {
+  window.addEventListener("resize", onStoreChange);
+  return () => window.removeEventListener("resize", onStoreChange);
+};
+const getMobileSnapshot = () => isPhoneWidth(window.innerWidth);
+const getServerSnapshot = () => false;
 type Order = {
   id: string;
   recordId: string;
@@ -79,10 +87,21 @@ function OrderSearchCard({ search, onSearch, currentTime, statusFilter, onStatus
           </div>
         </div>
         <StatusFilters statusFilter={statusFilter} onStatusFilter={onStatusFilter} />
-        <div className="menu-search-wrap">
-          <label className="pos-search orders-search" htmlFor="order-search">
-            <Search size={16} />
-            <input id="order-search" type="search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search orders" />
+        <div className="menu-header-tools">
+          <div className="menu-search-wrap">
+            <label className="pos-search orders-search" htmlFor="order-search">
+              <Search size={16} />
+              <input id="order-search" type="search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search orders" />
+            </label>
+          </div>
+          <label className="menu-filter-dropdown" htmlFor="order-status-filter">
+            <select id="order-status-filter" value={statusFilter} aria-label="Order status" onChange={(event) => onStatusFilter(event.target.value as StatusFilter)}>
+              <option value="all">All</option>
+              {ORDER_STATUSES.map((status) => (
+                <option key={status} value={status}>{status}</option>
+              ))}
+            </select>
+            <ChevronDown size={14} aria-hidden />
           </label>
         </div>
         <time className="orders-digital-clock" dateTime={currentTime?.toISOString()}>{currentTime?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
@@ -96,45 +115,41 @@ function OrderList({ items, selectedId, onSelect, page, totalPages, onPageChange
     <Card className="orders-list-card rounded-none">
       <CardContent className="orders-list-content px-0">
         {items.length ? (
-          <table className="history-table orders-recent-table">
-            <thead>
-              <tr>
-                <th>Order</th>
-                <th>Customer name</th>
-                <th>Items</th>
-                <th>Total</th>
-                <th>Status</th>
-                <th>Time</th>
-              </tr>
-            </thead>
-            <tbody>
+          <div className="orders-feed">
+            <div className="orders-feed-head">
+              <span>Order</span>
+              <span>Customer</span>
+              <span>Items</span>
+              <span>Total</span>
+              <span>Status</span>
+              <span>Time</span>
+            </div>
+            <div className="orders-feed-body" role="list">
               {items.map((order) => {
                 const stamp = formatReceiptStamp(order.time);
                 return (
-                  <tr
+                  <button
                     key={order.id}
-                    className={selectedId === order.id ? "selected" : undefined}
-                    tabIndex={0}
-                    aria-selected={selectedId === order.id}
+                    type="button"
+                    role="listitem"
+                    className={`order-row${selectedId === order.id ? " selected" : ""}`}
+                    aria-pressed={selectedId === order.id}
                     onClick={() => onSelect(order.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        onSelect(order.id);
-                      }
-                    }}
                   >
-                    <td>{order.id}</td>
-                    <td>{order.name}</td>
-                    <td>{order.items}</td>
-                    <td>{peso(order.amount)}</td>
-                    <td><span className={`status-pill ${statusClass(order.status)}`}><i aria-hidden="true" />{order.status}</span></td>
-                    <td>{stamp.clock}</td>
-                  </tr>
+                    <span className="order-row-id">{order.id}</span>
+                    <span className="order-row-copy">
+                      <strong>{order.name}</strong>
+                      <small>{order.id} · {stamp.clock}</small>
+                    </span>
+                    <span className="order-row-items">{order.items}</span>
+                    <strong className="order-row-amount">{peso(order.amount)}</strong>
+                    <span className={`status-pill ${statusClass(order.status)}`}><i aria-hidden="true" />{order.status}</span>
+                    <span className="order-row-time">{stamp.clock}</span>
+                  </button>
                 );
               })}
-            </tbody>
-          </table>
+            </div>
+          </div>
         ) : (
           <div className="products-empty-state orders-empty-state">
             <div className="products-empty-art"><img src="/coffees/teacup.png" alt="" /></div>
@@ -236,7 +251,8 @@ export default function OrdersPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const ordersPerPage = 7;
+  const isMobile = useSyncExternalStore(subscribeToResize, getMobileSnapshot, getServerSnapshot);
+  const ordersPerPage = isMobile ? 5 : 7;
   useEffect(() => { setCurrentTime(new Date()); const timer = window.setInterval(() => setCurrentTime(new Date()), 1000); return () => window.clearInterval(timer); }, []);
   useEffect(() => {
     const loadOrders = async () => {

@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { phoneMedia, tabletOrPhoneMedia } from "@/lib/breakpoints";
 import { subscribeToOrderUpdates } from "@/lib/order-sync-client";
 
 type Transaction = {
@@ -77,6 +78,7 @@ function TransactionCalendar({
 	onSelect,
 	onOpenDay,
 	onFocusDay,
+	compactDays,
 }: {
 	viewMonth: Date;
 	today: Date;
@@ -87,6 +89,7 @@ function TransactionCalendar({
 	onSelect: (id: string) => void;
 	onOpenDay: (key: string) => void;
 	onFocusDay: (key: string) => void;
+	compactDays?: boolean;
 }) {
 	const days = calendarDays(viewMonth);
 	const todayKey = localDateKey(today);
@@ -120,23 +123,30 @@ function TransactionCalendar({
 						transition={viewTransition}
 					>
 						{daySales.length ? (
-							<ul>
-								{daySales.map((sale) => {
-									const stamp = formatStamp(sale.time);
-									return (
-										<li key={sale.id}>
-											<button type="button" className={selectedId === sale.id ? "selected" : undefined} onClick={() => onSelect(sale.id)}>
-												<time>{stamp.clock}</time>
-												<span>
+							<div className="orders-feed history-day-feed" role="list">
+								<div className="orders-feed-body">
+									{daySales.map((sale) => {
+										const stamp = formatStamp(sale.time);
+										return (
+											<button
+												key={sale.id}
+												type="button"
+												role="listitem"
+												className={`order-row${selectedId === sale.id ? " selected" : ""}`}
+												aria-pressed={selectedId === sale.id}
+												onClick={() => onSelect(sale.id)}
+											>
+												<span className="order-row-copy">
 													<strong>{sale.name}</strong>
 													<small>{sale.items}</small>
 												</span>
-												<em>{peso(sale.amount)}</em>
+												<strong className="order-row-amount">{peso(sale.amount)}</strong>
+												<time className="order-row-time">{stamp.clock}</time>
 											</button>
-										</li>
-									);
-								})}
-							</ul>
+										);
+									})}
+								</div>
+							</div>
 						) : (
 							<p className="accounts-empty">No transactions on this day.</p>
 						)}
@@ -162,7 +172,7 @@ function TransactionCalendar({
 					const key = localDateKey(day);
 					const sales = byDay.get(key) ?? [];
 					const extra = Math.max(0, sales.length - 3);
-					const opensDay = sales.length >= 4;
+					const opensDay = compactDays ? sales.length > 0 : sales.length >= 4;
 					const isOutsideMonth = day.getMonth() !== currentMonth;
 					const hasSelected = focusedDayKey === key || sales.some((sale) => sale.id === selectedId);
 					const openOrSelect = () => {
@@ -308,6 +318,7 @@ export default function HistoryPage() {
 	const [focusedDayKey, setFocusedDayKey] = useState<string | null>(null);
 	const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()));
 	const [isCompactLayout, setIsCompactLayout] = useState(false);
+	const [isPhoneLayout, setIsPhoneLayout] = useState(false);
 	const [currentTime, setCurrentTime] = useState<Date | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState("");
@@ -315,13 +326,19 @@ export default function HistoryPage() {
 	useEffect(() => {
 		setCurrentTime(new Date());
 		const timer = window.setInterval(() => setCurrentTime(new Date()), 1000);
-		const layout = window.matchMedia("(max-width: 1100px)");
-		const syncLayout = () => setIsCompactLayout(layout.matches);
+		const layout = window.matchMedia(tabletOrPhoneMedia);
+		const phone = window.matchMedia(phoneMedia);
+		const syncLayout = () => {
+			setIsCompactLayout(layout.matches);
+			setIsPhoneLayout(phone.matches);
+		};
 		syncLayout();
 		layout.addEventListener("change", syncLayout);
+		phone.addEventListener("change", syncLayout);
 		return () => {
 			window.clearInterval(timer);
 			layout.removeEventListener("change", syncLayout);
+			phone.removeEventListener("change", syncLayout);
 		};
 	}, []);
 
@@ -402,7 +419,7 @@ export default function HistoryPage() {
 	const selectedTransaction = visibleTransactions.find((transaction) => transaction.id === selectedId);
 
 	return (
-		<section className="pos-catalog" aria-label="Transaction">
+		<section className="pos-catalog history-page" aria-label="Transaction">
 			<div className="orders-dashboard-card menu-header-card">
 				<div className="orders-dashboard-content">
 					<div className="orders-dashboard-heading">
@@ -423,8 +440,7 @@ export default function HistoryPage() {
 				</div>
 			</div>
 
-			<div className="history-page">
-				<div className="history-layout">
+			<div className="history-layout">
 					<div className="history-ledger">
 						{openDayKey ? (
 							<div className="history-ledger-head">
@@ -450,6 +466,7 @@ export default function HistoryPage() {
 									selectedId={selectedId}
 									focusedDayKey={focusedDayKey}
 									openDayKey={openDayKey}
+									compactDays={isPhoneLayout}
 									onSelect={(id) => {
 										setSelectedId(id);
 										const sale = visibleTransactions.find((transaction) => transaction.id === id);
@@ -482,7 +499,6 @@ export default function HistoryPage() {
 						</SheetContent>
 					</Sheet>
 				</div>
-			</div>
 		</section>
 	);
 }

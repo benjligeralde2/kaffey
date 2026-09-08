@@ -30,11 +30,20 @@ function serviceHeaders() {
 	};
 }
 
+function staffRoleOf(role: unknown) {
+	const normalized = String(role ?? "").trim().toLowerCase();
+	if (normalized === "admin" || normalized === "cashier" || normalized === "kitchen") return normalized;
+	return "";
+}
+
 async function requireStaff() {
 	const supabase = await createClient();
 	const { data, error } = await supabase.auth.getUser();
-	if (error || !data.user || !["admin", "cashier"].includes(data.user.app_metadata?.role)) throw new Error("Staff access is required.");
-	return data.user;
+	const role = staffRoleOf(data.user?.app_metadata?.role) || staffRoleOf(data.user?.user_metadata?.role);
+	if (error || !data.user || !role) {
+		return NextResponse.json({ error: "Staff access is required." }, { status: 401 });
+	}
+	return { user: data.user, role };
 }
 
 async function broadcastOrderRecorded(alert?: OrderAlert) {
@@ -91,10 +100,11 @@ function mapOrder(order: OrderRow) {
 export async function GET(request: NextRequest) {
 	if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return NextResponse.json({ error: "Supabase configuration is missing." }, { status: 500 });
 	try {
-		const user = await requireStaff();
+		const staff = await requireStaff();
+		if (staff instanceof NextResponse) return staff;
 		const kitchen = request.nextUrl.searchParams.get("kitchen") === "true";
-		const mine = !kitchen && (request.nextUrl.searchParams.get("mine") === "true" || user.app_metadata?.role === "cashier");
-		const cashierFilter = mine ? `&cashier_id=eq.${encodeURIComponent(user.id)}` : "";
+		const mine = !kitchen && (request.nextUrl.searchParams.get("mine") === "true" || staff.role === "cashier");
+		const cashierFilter = mine ? `&cashier_id=eq.${encodeURIComponent(staff.user.id)}` : "";
 		const response = await fetch(`${SUPABASE_URL}/rest/v1/orders?select=*&order=created_at.desc${cashierFilter}`, { headers: serviceHeaders(), cache: "no-store" });
 		const result = await response.json().catch(() => ({}));
 		if (!response.ok) return NextResponse.json({ error: result?.message || "Unable to load orders." }, { status: response.status || 500 });
@@ -107,7 +117,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
 	if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return NextResponse.json({ error: "Supabase configuration is missing." }, { status: 500 });
 	try {
-		const user = await requireStaff();
+		const staff = await requireStaff();
+		if (staff instanceof NextResponse) return staff;
+		if (staff.role === "kitchen") return NextResponse.json({ error: "Kitchen accounts cannot create orders." }, { status: 403 });
+		const user = staff.user;
 		const body = await request.json();
 		const customerName = typeof body?.customerName === "string" ? body.customerName.trim() : "";
 		const amount = typeof body?.amount === "number" ? body.amount : Number(body?.amount);
@@ -142,7 +155,8 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
 	if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return NextResponse.json({ error: "Supabase configuration is missing." }, { status: 500 });
 	try {
-		await requireStaff();
+		const staff = await requireStaff();
+		if (staff instanceof NextResponse) return staff;
 		const body = await request.json();
 		const recordId = typeof body?.id === "string" ? body.id.trim() : "";
 		const status = normalizeStatus(body?.status);

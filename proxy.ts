@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { normalizePosRole, posHomePath } from "@/lib/pos-role";
+
 function hasSupabaseConfig() {
 	return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
 }
@@ -36,14 +38,20 @@ export async function proxy(request: NextRequest) {
 		return NextResponse.redirect(loginUrl);
 	}
 
-	const isAdmin = user.app_metadata.role === "admin";
+	const role = normalizePosRole(user.app_metadata?.role);
+	const isAdmin = role === "admin";
+	const isKitchen = role === "kitchen";
 	const isAdminRoute = request.nextUrl.pathname.startsWith("/POS/admin-dashboard");
 	const isCashierRoute = request.nextUrl.pathname.startsWith("/POS/cashier-dashboard");
+	const isKitchenRoute = request.nextUrl.pathname.startsWith("/POS/kitchen");
 	if (isAdminRoute && !isAdmin) {
-		return NextResponse.redirect(new URL("/POS/cashier-dashboard", request.url));
+		return NextResponse.redirect(new URL(posHomePath(role), request.url));
 	}
-	if (isCashierRoute && isAdmin) {
-		return NextResponse.redirect(new URL("/POS/admin-dashboard", request.url));
+	if (isCashierRoute && (isAdmin || isKitchen)) {
+		return NextResponse.redirect(new URL(posHomePath(role), request.url));
+	}
+	if (isKitchenRoute && !isKitchen && !isAdmin) {
+		return NextResponse.redirect(new URL(posHomePath(role), request.url));
 	}
 
 	return response;

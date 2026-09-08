@@ -48,7 +48,15 @@ create policy "Staff can read orders"
   on public.orders
   for select
   to authenticated
-  using ((auth.jwt() -> 'app_metadata' ->> 'role') in ('admin', 'cashier'));
+  using ((auth.jwt() -> 'app_metadata' ->> 'role') in ('admin', 'cashier', 'kitchen'));
+
+drop policy if exists "Kitchen can update order status" on public.orders;
+create policy "Kitchen can update order status"
+  on public.orders
+  for update
+  to authenticated
+  using ((auth.jwt() -> 'app_metadata' ->> 'role') in ('admin', 'cashier', 'kitchen'))
+  with check ((auth.jwt() -> 'app_metadata' ->> 'role') in ('admin', 'cashier', 'kitchen'));
 
 do $$
 begin
