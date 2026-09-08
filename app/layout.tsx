@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
+import { CapacitorProvider } from "@/components/capacitor-provider";
 import { PwaProvider } from "@/components/pwa-provider";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
@@ -45,6 +46,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       data-scroll-behavior="smooth"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
         <script
@@ -55,6 +57,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Toaster>
           {children}
         </Toaster>
+        <CapacitorProvider />
         <PwaProvider />
         <Analytics />
       </body>

@@ -1,10 +1,13 @@
 "use client";
 
+import { Capacitor } from "@capacitor/core";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { createClient } from "@/lib/supabase/client";
+
+const ANDROID_APK_HREF = "/kaffey.apk";
 
 const coffeeSlides = [
   { src: "/coffees/Iced_Coffee_With_Milk_Splash_And_Ice_Cubes_PNG___TopPNG-removebg-preview.png", label: "Iced coffee with milk" },
@@ -15,6 +18,11 @@ export default function Home() {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [activeSlide, setActiveSlide] = useState(0);
   const [posDestination, setPosDestination] = useState({ href: "/POS/login", label: "Open the POS" });
+  const [showAppDownload, setShowAppDownload] = useState(true);
+
+  useEffect(() => {
+    setShowAppDownload(!Capacitor.isNativePlatform());
+  }, []);
 
   useEffect(() => {
     const loadSessionDestination = async () => {
@@ -56,7 +64,17 @@ export default function Home() {
       <header className="site-header">
         <nav className="site-nav content-width" aria-label="Primary navigation">
           <a className="wordmark" href="#home" aria-label="Kaffey home"><span className="wordmark-mark">K</span> kaffey<span className="wordmark-dot">.</span></a>
-          <div className="nav-links"><a href="mailto:hello@kaffey.coffee">Ask help</a><Link href={posDestination.href}>{posDestination.label} <span>↗</span></Link></div>
+          <div className="nav-links">
+            {showAppDownload ? (
+              <a href={ANDROID_APK_HREF} download="kaffey.apk">
+                Download app
+              </a>
+            ) : null}
+            <a href="mailto:hello@kaffey.coffee">Ask help</a>
+            <Link href={posDestination.href}>
+              {posDestination.label} <span>↗</span>
+            </Link>
+          </div>
         </nav>
       </header>
       <div className="hero-transition">
@@ -78,7 +96,21 @@ export default function Home() {
               {coffeeSlides.map((slide, index) => <button className={activeSlide === index ? "active" : ""} key={slide.src} type="button" aria-label={`Show ${slide.label}`} aria-current={activeSlide === index ? "true" : undefined} onClick={() => goToSlide(index)} />)}
             </div>
           </div>
-          <div className="hero-copy"><p className="eyebrow"><span className="eyebrow-line" /> Kaffey point of sale</p><h1>Keep your<br /><em>counter</em> flowing.</h1><p className="hero-intro">Manage orders, keep the menu moving, and make every handoff feel effortless.</p><Link className="primary-button hero-pos-button" href={posDestination.href}>{posDestination.label} <span className="hero-chevron hero-chevron-right" aria-hidden="true" /></Link></div>
+          <div className="hero-copy">
+            <p className="eyebrow"><span className="eyebrow-line" /> Kaffey point of sale</p>
+            <h1>Keep your<br /><em>counter</em> flowing.</h1>
+            <p className="hero-intro">Manage orders, keep the menu moving, and make every handoff feel effortless.</p>
+            <div className="hero-actions">
+              <Link className="primary-button hero-pos-button" href={posDestination.href}>
+                {posDestination.label} <span className="hero-chevron hero-chevron-right" aria-hidden="true" />
+              </Link>
+              {showAppDownload ? (
+                <a className="secondary-button hero-pos-button" href={ANDROID_APK_HREF} download="kaffey.apk">
+                  Download app
+                </a>
+              ) : null}
+            </div>
+          </div>
         </div>
       </motion.section>
       </div>

@@ -119,9 +119,12 @@ h1, h2 { font-family: Georgia, "Times New Roman", serif; font-weight: 400; lette
 h1 { font-size: clamp(72px, 9vw, 128px); margin: 24px 0 30px; }
 h1 em, h2 em { color: var(--coral); font-style: italic; }
 .hero-intro { color: rgba(234, 239, 235, 0.84); font-size: 17px; line-height: 1.7; max-width: 340px; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .primary-button { align-items: center; background: linear-gradient(135deg, #a86449, var(--coral)); border-radius: 999px; box-shadow: 0 18px 35px rgba(120, 72, 58, 0.22); color: #fffaf7; display: inline-flex; font-size: 11px; font-weight: 700; letter-spacing: .12em; margin-top: 24px; padding: 17px 24px; text-transform: uppercase; transition: transform .2s ease, box-shadow .2s ease; }
 .primary-button:hover { box-shadow: 0 22px 40px rgba(120, 72, 58, 0.28); transform: translateY(-3px); }
 .primary-button:disabled, .primary-button:disabled:hover { box-shadow: 0 18px 35px rgba(120, 72, 58, 0.22); cursor: wait; opacity: .82; transform: none; }
+.secondary-button { align-items: center; background: transparent; border: 1px solid rgba(231, 227, 215, 0.38); border-radius: 999px; color: #edf0ea; display: inline-flex; font-size: 11px; font-weight: 700; letter-spacing: .12em; margin-top: 24px; padding: 16px 24px; text-transform: uppercase; transition: border-color .2s ease, color .2s ease, transform .2s ease; }
+.secondary-button:hover { border-color: var(--coral); color: var(--coral); transform: translateY(-3px); }
 .hero-pos-button { font-size: 12px; justify-content: center; padding: 13px 18px; text-align: center; }
 .hero-note { align-self: flex-end; color: rgba(227, 233, 227, 0.8); display: flex; font-size: 11px; gap: 15px; line-height: 1.5; margin: 0 0 62px auto; text-transform: uppercase; }
 .hero-note span { color: var(--coral); font-family: Georgia, serif; font-size: 20px; }

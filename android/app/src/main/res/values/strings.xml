@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Kaffey</string>
+    <string name="title_activity_main">Kaffey</string>
+    <string name="package_name">com.kaffey.pos</string>
+    <string name="custom_url_scheme">com.kaffey.pos</string>
+</resources>

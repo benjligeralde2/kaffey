@@ -1,5 +1,6 @@
 "use client";
 
+import { Capacitor } from "@capacitor/core";
 import { Download, Share, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -23,6 +24,8 @@ export function PwaProvider() {
 	const [showAppleHint, setShowAppleHint] = useState(false);
 
 	useEffect(() => {
+		if (Capacitor.isNativePlatform()) return;
+
 		if ("serviceWorker" in navigator) {
 			void navigator.serviceWorker.register("/sw.js", { scope: "/" });
 		}
