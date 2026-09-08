@@ -1,6 +1,4 @@
-import { ImageResponse } from "next/og";
-
-const MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <rect width="1024" height="1024" fill="#f5efe7"/>
   <g transform="translate(512, 512)">
     <rect x="-280" y="-280" width="560" height="560" rx="160" ry="160" fill="#b86a4b" stroke="#8d4d38" stroke-width="12" stroke-linejoin="round"/>
@@ -13,20 +11,4 @@ const MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024
       <path d="M 40,-130 L 110,-130 L 110,-90 L 80,-90 Z" fill="#fffaf7"/>
     </g>
   </g>
-</svg>`;
-
-export function kaffeyIconImage(size: number, _variant: "any" | "maskable" = "any") {
-	return new ImageResponse(
-		(
-			<div style={{ display: "flex", width: "100%", height: "100%" }}>
-				<img
-					src={`data:image/svg+xml;utf8,${encodeURIComponent(MARK_SVG)}`}
-					alt=""
-					width={size}
-					height={size}
-				/>
-			</div>
-		),
-		{ width: size, height: size },
-	);
-}
+</svg>
