@@ -58,7 +58,7 @@ export function ShatterToLogin({ children }: { children: ReactNode }) {
           cacheBust: false,
           filter: (node) => {
             if (!(node instanceof HTMLElement)) return true;
-            return !node.classList.contains("shatter-overlay") && !node.classList.contains("app-cursor");
+            return !node.classList.contains("shatter-overlay");
           },
         });
 

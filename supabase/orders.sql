@@ -3,7 +3,8 @@ create table if not exists public.orders (
   order_number bigint generated always as identity unique,
   customer_name text not null,
   amount numeric(10, 2) not null check (amount >= 0),
-  payment_method text not null check (payment_method in ('Cash')),
+  payment_method text not null check (payment_method in ('Cash', 'GCash')),
+  payment_intent_id text unique,
   order_type text not null default 'Dine-in',
   table_number text not null default 'Counter',
   line_items jsonb not null default '[]'::jsonb,
@@ -16,6 +17,45 @@ create table if not exists public.orders (
 alter table public.orders add column if not exists cashier_id uuid references auth.users(id);
 alter table public.orders add column if not exists cashier_name text;
 alter table public.orders add column if not exists status text not null default 'Pending';
+alter table public.orders add column if not exists payment_intent_id text;
+
+do $$
+declare
+  constraint_name text;
+begin
+  for constraint_name in
+    select con.conname
+    from pg_constraint con
+    join pg_class rel on rel.oid = con.conrelid
+    join pg_namespace nsp on nsp.oid = rel.relnamespace
+    where nsp.nspname = 'public'
+      and rel.relname = 'orders'
+      and con.contype = 'c'
+      and pg_get_constraintdef(con.oid) ilike '%payment_method%'
+  loop
+    execute format('alter table public.orders drop constraint if exists %I', constraint_name);
+  end loop;
+end
+$$;
+
+alter table public.orders drop constraint if exists orders_payment_method_check;
+alter table public.orders add constraint orders_payment_method_check check (payment_method in ('Cash', 'GCash'));
+create unique index if not exists orders_payment_intent_id_uidx on public.orders (payment_intent_id) where payment_intent_id is not null;
+
+create table if not exists public.gcash_checkouts (
+  id text primary key,
+  cashier_id uuid not null references auth.users(id),
+  cashier_name text not null,
+  customer_name text not null,
+  amount numeric(10, 2) not null check (amount >= 0),
+  line_items jsonb not null default '[]'::jsonb,
+  checkout_url text,
+  status text not null default 'pending' check (status in ('pending', 'paid', 'failed')),
+  order_id uuid references public.orders(id),
+  created_at timestamptz not null default now()
+);
+
+alter table public.gcash_checkouts enable row level security;
 
 do $$
 declare

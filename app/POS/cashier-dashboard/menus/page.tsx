@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { Button } from "@/components/ui/button";
 import { useBrewingReady } from "@/components/brewing-loader";
+import { PaymentMethodModal } from "@/components/pos/payment-method-modal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isPhoneWidth, isTabletWidth } from "@/lib/breakpoints";
@@ -44,9 +45,11 @@ export default function MenusPage() {
 	const [isPaymentMethodModalOpen, setIsPaymentMethodModalOpen] = useState(false);
 	const [isClearOrderModalOpen, setIsClearOrderModalOpen] = useState(false);
 	const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null);
-	const [paymentMethod, setPaymentMethod] = useState("Cash");
+	const [paymentMethod, setPaymentMethod] = useState<"Cash" | "Card" | "GCash">("Cash");
 	const [isRecordingPayment, setIsRecordingPayment] = useState(false);
 	const [paymentError, setPaymentError] = useState("");
+	const [gcashCheckout, setGcashCheckout] = useState<{ paymentIntentId: string; checkoutUrl: string; number: string } | null>(null);
+	const [isConfirmingGcash, setIsConfirmingGcash] = useState(false);
 	const [dragStartY, setDragStartY] = useState<number | null>(null);
 	const [dragOffset, setDragOffset] = useState(0);
 	const [currentTime, setCurrentTime] = useState<Date | null>(null);
@@ -150,6 +153,19 @@ export default function MenusPage() {
 		};
 	}, [isOrderOpen, orderItems.length, updateOrderScrollHint]);
 
+	const lineItems = () => orderItems.map((item) => ({ name: item.name, detail: item.category, quantity: order[item.id], price: item.price, image: item.image }));
+
+	const clearPaidOrder = () => {
+		setOrder({});
+		setCustomerName("");
+		setIsPaymentMethodModalOpen(false);
+		setPaymentMethod("Cash");
+		setGcashCheckout(null);
+		setPaymentError("");
+		notifyOrderRecordedLocally();
+		void notifyOrderRecordedRemotely();
+	};
+
 	const recordCashPayment = async () => {
 		if (paymentMethod !== "Cash" || !customerName.trim() || !orderItems.length) return;
 		setIsRecordingPayment(true);
@@ -162,23 +178,96 @@ export default function MenusPage() {
 					customerName,
 					amount: total,
 					paymentMethod: "Cash",
-					lineItems: orderItems.map((item) => ({ name: item.name, detail: item.category, quantity: order[item.id], price: item.price, image: item.image })),
+					lineItems: lineItems(),
 				}),
 			});
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) throw new Error(payload.error || "Unable to record payment.");
-			setOrder({});
-			setCustomerName("");
-			setIsPaymentMethodModalOpen(false);
-			setPaymentMethod("Cash");
-			notifyOrderRecordedLocally();
-			void notifyOrderRecordedRemotely();
+			clearPaidOrder();
 		} catch (error) {
 			setPaymentError(error instanceof Error ? error.message : "Unable to record payment.");
 		} finally {
 			setIsRecordingPayment(false);
 		}
 	};
+
+	const startGcashPayment = async () => {
+		if (paymentMethod !== "GCash" || !customerName.trim() || !orderItems.length) return;
+		setIsRecordingPayment(true);
+		setPaymentError("");
+		try {
+			const response = await fetch("/api/payments/gcash", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					customerName,
+					amount: total,
+					lineItems: lineItems(),
+				}),
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(payload.error || "Unable to start GCash payment.");
+			if (!payload.paymentIntentId || !payload.checkoutUrl) throw new Error("GCash checkout was not created.");
+			setGcashCheckout({
+				paymentIntentId: payload.paymentIntentId,
+				checkoutUrl: payload.checkoutUrl,
+				number: typeof payload.number === "string" ? payload.number : "",
+			});
+		} catch (error) {
+			setPaymentError(error instanceof Error ? error.message : "Unable to start GCash payment.");
+		} finally {
+			setIsRecordingPayment(false);
+		}
+	};
+
+	const confirmGcashReceived = async () => {
+		if (!gcashCheckout?.paymentIntentId) return;
+		setIsConfirmingGcash(true);
+		setPaymentError("");
+		try {
+			const response = await fetch("/api/payments/gcash/confirm", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ id: gcashCheckout.paymentIntentId }),
+			});
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(payload.error || "Unable to confirm GCash payment.");
+			if (payload.status === "paid") clearPaidOrder();
+		} catch (error) {
+			setPaymentError(error instanceof Error ? error.message : "Unable to confirm GCash payment.");
+		} finally {
+			setIsConfirmingGcash(false);
+		}
+	};
+
+	useEffect(() => {
+		if (!gcashCheckout?.paymentIntentId) return;
+		let cancelled = false;
+		const poll = async () => {
+			try {
+				const response = await fetch(`/api/payments/gcash?id=${encodeURIComponent(gcashCheckout.paymentIntentId)}`, { cache: "no-store" });
+				const payload = await response.json().catch(() => ({}));
+				if (cancelled) return;
+				if (!response.ok) throw new Error(payload.error || "Unable to check GCash payment.");
+				if (payload.status === "paid") {
+					clearPaidOrder();
+					return;
+				}
+				if (payload.status === "failed") {
+					setPaymentError("GCash payment was not completed.");
+					setGcashCheckout(null);
+				}
+			} catch (error) {
+				if (!cancelled) setPaymentError(error instanceof Error ? error.message : "Unable to check GCash payment.");
+			}
+		};
+		void poll();
+		const timer = window.setInterval(() => { void poll(); }, 2500);
+		return () => {
+			cancelled = true;
+			window.clearInterval(timer);
+		};
+	}, [gcashCheckout?.paymentIntentId]);
 
 	const updateQuantity = (id: string, change: number) => {
 		setOrder((currentOrder) => {
@@ -312,7 +401,7 @@ export default function MenusPage() {
 			<button className="mobile-order-backdrop" type="button" aria-label="Close current order summary" onClick={() => setIsOrderOpen(false)} />
 			<button className={`mobile-order-trigger${isOrderOpen ? " is-hidden" : ""}`} type="button" aria-label="Open current order summary" onClick={() => setIsOrderOpen(true)}><ShoppingCart size={23} /><span>{orderItems.length}</span></button>
 			{isChargeModalOpen && <div className="charge-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsChargeModalOpen(false); }}><section className="charge-modal order-summary-modal" role="dialog" aria-modal="true" aria-labelledby="charge-modal-title"><button className="charge-modal-close" type="button" aria-label="Close order confirmation" onClick={() => setIsChargeModalOpen(false)}><X size={18} /></button><p className="pos-kicker" id="charge-modal-title">Order summary</p><p className="charge-modal-item-summary"><strong>{orderItems.length} {orderItems.length === 1 ? "item" : "items"}</strong><span>{orderItems.map((item) => `${order[item.id]} × ${item.name}`).join(" · ")}</span></p><div className="charge-modal-totals"><div className="charge-modal-total"><span>Total</span><strong>₱{total.toFixed(2)}</strong></div></div><Button className="charge-confirm-button" type="button" onClick={() => { setIsChargeModalOpen(false); setIsPaymentMethodModalOpen(true); }}>Continue to payment</Button></section></div>}
-			{isPaymentMethodModalOpen && <div className="charge-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsPaymentMethodModalOpen(false); }}><section className="charge-modal payment-method-modal" role="dialog" aria-modal="true" aria-labelledby="payment-method-title"><button className="charge-modal-close" type="button" aria-label="Close payment options" onClick={() => setIsPaymentMethodModalOpen(false)}><X size={18} /></button><p className="pos-kicker" id="payment-method-title">Payment method</p><div className="payment-methods" role="radiogroup" aria-label="Payment methods">{["Cash", "Card", "GCash"].map((method) => { const isCash = method === "Cash"; return <button className={`payment-method-option${paymentMethod === method ? " selected" : ""}`} key={method} type="button" role="radio" aria-checked={paymentMethod === method} disabled={!isCash} onClick={() => setPaymentMethod(method)}><span className="payment-method-icon">{method === "Cash" ? "₱" : method === "Card" ? "▣" : "G"}</span><span><strong>{method}</strong><small>{isCash ? "Collect cash at the table" : "Coming soon"}</small></span><i /></button>; })}</div>{paymentError && <p className="payment-error" role="alert">{paymentError}</p>}<div className="payment-method-total"><span>Amount due</span><strong>₱{total.toFixed(2)}</strong></div><Button className="charge-confirm-button" type="button" disabled={isRecordingPayment} onClick={recordCashPayment}>{isRecordingPayment ? "Recording..." : "Record Cash payment"}</Button></section></div>}
+			{isPaymentMethodModalOpen && <PaymentMethodModal total={total} paymentMethod={paymentMethod} onPaymentMethodChange={setPaymentMethod} paymentError={paymentError} isBusy={isRecordingPayment} gcashCheckoutUrl={gcashCheckout?.checkoutUrl || ""} gcashMerchantNumber={gcashCheckout?.number || ""} isConfirmingGcash={isConfirmingGcash} onClose={() => { setIsPaymentMethodModalOpen(false); setGcashCheckout(null); setPaymentError(""); }} onConfirm={paymentMethod === "GCash" ? startGcashPayment : recordCashPayment} onConfirmGcashReceived={() => void confirmGcashReceived()} />}
 		</section>
 	);
 }

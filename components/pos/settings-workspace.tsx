@@ -57,6 +57,16 @@ function PasswordField({
 	);
 }
 
+type SettingsPanel = "profile" | "password" | "preferences" | "shop" | "signout";
+
+const SETTINGS_PANEL_TITLES: Record<SettingsPanel, string> = {
+	profile: "Edit Profile",
+	password: "Change Password",
+	preferences: "Preferences",
+	shop: "Shop Details",
+	signout: "Sign Out",
+};
+
 type SettingsWorkspaceProps = {
 	variant: "admin" | "cashier";
 };
@@ -84,8 +94,9 @@ export function SettingsWorkspace({ variant }: SettingsWorkspaceProps) {
 	const [isSavingProfile, setIsSavingProfile] = useState(false);
 	const [isSavingPassword, setIsSavingPassword] = useState(false);
 	const [isSigningOut, setIsSigningOut] = useState(false);
-	const [cashierPanel, setCashierPanel] = useState<"profile" | "password" | "preferences" | "shop" | "signout">("profile");
+	const [cashierPanel, setCashierPanel] = useState<SettingsPanel>("profile");
 	const [isPhoneLayout, setIsPhoneLayout] = useState(false);
+	const [currentTime, setCurrentTime] = useState<Date | null>(null);
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [compactSidebar, setCompactSidebar] = useState(false);
 	const [soundEnabled, setSoundEnabled] = useState(true);
@@ -126,9 +137,12 @@ export function SettingsWorkspace({ variant }: SettingsWorkspaceProps) {
 		};
 		syncPhone();
 		phone.addEventListener("change", syncPhone);
+		setCurrentTime(new Date());
+		const timer = window.setInterval(() => setCurrentTime(new Date()), 1000);
 		return () => {
 			window.removeEventListener(SIDEBAR_PREFERENCE_EVENT, syncSidebar);
 			phone.removeEventListener("change", syncPhone);
+			window.clearInterval(timer);
 		};
 	}, []);
 
@@ -259,7 +273,7 @@ export function SettingsWorkspace({ variant }: SettingsWorkspaceProps) {
 		router.replace("/POS/login");
 	};
 
-	const selectCashierPanel = (panel: "profile" | "password" | "preferences" | "shop" | "signout") => {
+	const selectCashierPanel = (panel: SettingsPanel) => {
 		if (panel !== "profile") clearPhotoSelection();
 		setCashierPanel(panel);
 		if (isPhoneLayout) setSettingsOpen(true);
@@ -267,6 +281,8 @@ export function SettingsWorkspace({ variant }: SettingsWorkspaceProps) {
 	const passwordsMatch = !confirmPassword || password === confirmPassword;
 	const isAdmin = variant === "admin";
 	const showSettingsDetail = !isPhoneLayout || settingsOpen;
+	const settingsCrumb = isPhoneLayout && settingsOpen ? SETTINGS_PANEL_TITLES[cashierPanel] : null;
+	const headerTitle = settingsCrumb ? `Settings / ${settingsCrumb}` : "Settings";
 	const settingsBack = isPhoneLayout ? (
 		<button className="history-calendar-back" type="button" onClick={() => setSettingsOpen(false)}>
 			<ChevronLeft size={16} aria-hidden="true" /> Back
@@ -279,11 +295,22 @@ export function SettingsWorkspace({ variant }: SettingsWorkspaceProps) {
 				<div className="orders-dashboard-content">
 					<div className="orders-dashboard-heading">
 						<div>
-							<h1 id={titleId} className="accounts-header-accessible-title">Settings</h1>
-							<p aria-hidden="true">Settings</p>
-							<span>{isAdmin ? "Account and workspace" : "Account and session"}</span>
+							<h1 id={titleId} className="accounts-header-accessible-title">{headerTitle}</h1>
+							<p className={settingsCrumb ? "settings-breadcrumb" : undefined} aria-hidden={settingsCrumb ? undefined : true}>
+								{settingsCrumb ? (
+									<>
+										<span className="settings-breadcrumb-root" role="button" tabIndex={0} aria-label="Back to Settings" onClick={() => setSettingsOpen(false)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSettingsOpen(false); } }}>Settings</span>
+										<span className="settings-breadcrumb-sep">  /  </span>
+										<span className="settings-breadcrumb-current">{settingsCrumb}</span>
+									</>
+								) : (
+									"Settings"
+								)}
+							</p>
+							<span>{currentTime?.toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}</span>
 						</div>
 					</div>
+					<time className="orders-digital-clock" dateTime={currentTime?.toISOString()}>{currentTime?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
 				</div>
 			</div>
 			<div className="settings-cashier-layout">
@@ -519,7 +546,7 @@ export function SettingsWorkspace({ variant }: SettingsWorkspaceProps) {
 									<dl className="settings-details">
 										<div><dt>Store</dt><dd>Kaffey</dd></div>
 										<div><dt>Role</dt><dd>Administrator</dd></div>
-										<div><dt>Payments</dt><dd>Cash</dd></div>
+										<div><dt>Payments</dt><dd>Cash, GCash (Kaffey merchant)</dd></div>
 										<div><dt>Support</dt><dd><a href="mailto:hello@kaffey.coffee">hello@kaffey.coffee</a></dd></div>
 									</dl>
 								</div>

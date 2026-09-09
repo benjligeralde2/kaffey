@@ -5,7 +5,6 @@ import {
 	HelpCircle,
 	LayoutDashboard,
 	Menu,
-	MessageCircle,
 	Settings,
 	ShoppingBag,
 } from "lucide-react";
@@ -97,7 +96,6 @@ export default function CashierDashboardLayout({ children }: { children: React.R
 				<div className="pos-brand"><button className="sidebar-toggle header-sidebar-toggle" type="button" onClick={handleSidebarToggle} aria-label={isSidebarOpen ? "Close navigation" : isSidebarCollapsed ? "Expand sidebar" : "Minimize sidebar"} aria-expanded={isSidebarOpen || !isSidebarCollapsed}><Menu size={18} /></button><span className="wordmark-mark">K</span><span>kaffey<span className="wordmark-dot">.</span></span><span className="pos-badge">Counter</span></div>
 				<div className="pos-header-actions">
 					<StaffNotificationBell notices={notices} toast={toast} isOpen={isNotificationsOpen} setIsOpen={setIsNotificationsOpen} anchorRef={notificationAnchorRef} />
-					<button className="pos-icon-button" type="button" aria-label="Messages"><MessageCircle size={18} strokeWidth={1.8} /></button>
 				</div>
 			</header>
 

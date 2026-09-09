@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { CapacitorProvider } from "@/components/capacitor-provider";
-import { AppCursor } from "@/components/app-cursor";
 import { NavigationProgress } from "@/components/navigation-progress";
 import { BrewingLoader } from "@/components/brewing-loader";
 import { PwaProvider } from "@/components/pwa-provider";
@@ -63,7 +62,6 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           {children}
         </Toaster>
         <CapacitorProvider />
-        <AppCursor />
         <PwaProvider />
         <Analytics />
       </body>

@@ -14,7 +14,7 @@ type Transaction = {
 	items: string;
 	amount: number;
 	time: string;
-	paymentMethod: "Cash";
+	paymentMethod: "Cash" | "GCash";
 	lineItems: { name: string; quantity: number; price: number }[];
 	cashierName: string;
 };

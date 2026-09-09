@@ -71,9 +71,13 @@ export async function notifyOrderRecordedRemotely() {
 	notifyListeners();
 	const supabase = createClient();
 	const channel = supabase.channel(ORDER_SYNC_CHANNEL, {
-		config: { broadcast: { ack: true, self: true }, private: false },
+		config: { broadcast: { ack: false, self: true }, private: false },
 	});
-	await channel.send({ type: "broadcast", event: ORDER_SYNC_EVENT, payload: { timestamp: Date.now() } });
+	try {
+		await channel.httpSend(ORDER_SYNC_EVENT, { timestamp: Date.now() });
+	} finally {
+		void supabase.removeChannel(channel);
+	}
 }
 
 export function subscribeToOrderUpdates(onUpdate: () => void) {
