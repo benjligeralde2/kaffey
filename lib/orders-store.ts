@@ -140,26 +140,28 @@ export async function insertPaidOrder(record: {
 
 	let currentPayload: Record<string, unknown> = payload;
 	let { response, result } = await post(currentPayload);
-	const errorMessage = () => String((result as { message?: string })?.message || "").toLowerCase();
-	if (!response.ok && errorMessage().includes("status")) {
+	const errorMessage = () => String((result as { message?: string; details?: string })?.message || (result as { details?: string })?.details || "").toLowerCase();
+	const errorCode = () => String((result as { code?: string })?.code || "");
+	const isDuplicate = () => response.status === 409 || errorCode() === "23505" || errorMessage().includes("duplicate") || errorMessage().includes("unique");
+	const missingColumn = (name: string) => {
+		const message = errorMessage();
+		return message.includes(name) && (message.includes("does not exist") || message.includes("schema cache") || message.includes("could not find"));
+	};
+
+	if (!response.ok && missingColumn("status")) {
 		const { status: _status, ...withoutStatus } = currentPayload;
 		currentPayload = withoutStatus;
 		({ response, result } = await post(currentPayload));
 	}
-	if (!response.ok && errorMessage().includes("payment_intent")) {
+	if (!response.ok && missingColumn("payment_intent")) {
 		const { payment_intent_id: _paymentIntentId, ...withoutIntent } = currentPayload;
 		currentPayload = withoutIntent;
 		({ response, result } = await post(currentPayload));
 	}
 	if (!response.ok) {
-		const duplicate = response.status === 409 || errorMessage().includes("duplicate") || errorMessage().includes("unique");
-		if (duplicate && record.payment_intent_id) {
-			const existing = await fetch(`${SUPABASE_URL}/rest/v1/orders?payment_intent_id=eq.${encodeURIComponent(record.payment_intent_id)}&select=*&limit=1`, {
-				headers: serviceHeaders(),
-				cache: "no-store",
-			});
-			const rows = await existing.json().catch(() => []);
-			if (Array.isArray(rows) && rows[0]) return rows[0] as OrderRow;
+		if (isDuplicate() && record.payment_intent_id) {
+			const existing = await findOrderByPaymentIntent(record.payment_intent_id);
+			if (existing) return existing;
 		}
 		throw new Error((result as { message?: string })?.message || "Unable to record order.");
 	}

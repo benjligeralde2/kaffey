@@ -77,7 +77,30 @@ export async function loadGcashCheckout(paymentIntentId: string) {
 	return Array.isArray(result) ? result[0] || null : null;
 }
 
+async function syncCheckoutOrder(paymentIntentId: string, orderId: string) {
+	await rest(`gcash_checkouts?id=eq.${encodeURIComponent(paymentIntentId)}`, {
+		method: "PATCH",
+		headers: { Prefer: "return=minimal" },
+		body: JSON.stringify({ status: "paid", order_id: orderId }),
+	}).catch(() => undefined);
+}
+
+async function claimPendingCheckout(paymentIntentId: string, status: "paid" | "failed") {
+	const rows = await rest<GcashCheckoutRow[]>(`gcash_checkouts?id=eq.${encodeURIComponent(paymentIntentId)}&status=eq.pending`, {
+		method: "PATCH",
+		headers: { Prefer: "return=representation" },
+		body: JSON.stringify({ status }),
+	});
+	return Array.isArray(rows) ? rows[0] || null : null;
+}
+
 async function recordPaidCheckout(paymentIntentId: string, checkout: GcashCheckoutRow) {
+	const existingOrder = await findOrderByPaymentIntent(paymentIntentId);
+	if (existingOrder) {
+		await syncCheckoutOrder(paymentIntentId, existingOrder.id);
+		return { status: "paid" as const, order: mapOrder(existingOrder) };
+	}
+
 	const lineItems = sanitizeLineItems(checkout.line_items);
 	if (!lineItems.length) throw new Error("GCash checkout is missing items.");
 	const order = await insertPaidOrder({
@@ -89,31 +112,22 @@ async function recordPaidCheckout(paymentIntentId: string, checkout: GcashChecko
 		cashier_name: checkout.cashier_name,
 		payment_intent_id: paymentIntentId,
 	});
-	await rest(`gcash_checkouts?id=eq.${encodeURIComponent(paymentIntentId)}`, {
-		method: "PATCH",
-		headers: { Prefer: "return=minimal" },
-		body: JSON.stringify({ status: "paid", order_id: order.id }),
-	}).catch(() => undefined);
-	await broadcastOrderRecorded(alertFromOrder(order, "new-order"));
+	await syncCheckoutOrder(paymentIntentId, order.id);
+	if (!existingOrder) await broadcastOrderRecorded(alertFromOrder(order, "new-order"));
 	return { status: "paid" as const, order: mapOrder(order) };
 }
 
 export async function fulfillGcashPayment(paymentIntentId: string) {
 	const existingOrder = await findOrderByPaymentIntent(paymentIntentId);
 	if (existingOrder) {
-		await rest(`gcash_checkouts?id=eq.${encodeURIComponent(paymentIntentId)}`, {
-			method: "PATCH",
-			headers: { Prefer: "return=minimal" },
-			body: JSON.stringify({ status: "paid", order_id: existingOrder.id }),
-		}).catch(() => undefined);
+		await syncCheckoutOrder(paymentIntentId, existingOrder.id);
 		return { status: "paid" as const, order: mapOrder(existingOrder) };
 	}
 
 	const checkout = await loadGcashCheckout(paymentIntentId);
 	if (!checkout) throw new Error("GCash checkout was not found.");
 	if (checkout.status === "failed") return { status: "failed" as const };
-	if (checkout.status !== "paid") return { status: "pending" as const };
-	return recordPaidCheckout(paymentIntentId, checkout);
+	return { status: "pending" as const };
 }
 
 export async function markGcashResult(paymentIntentId: string, status: "paid" | "failed") {
@@ -121,12 +135,9 @@ export async function markGcashResult(paymentIntentId: string, status: "paid" | 
 	const checkout = await loadGcashCheckout(paymentIntentId);
 	if (!checkout) throw new Error("GCash checkout was not found.");
 	if (checkout.status === "failed") return { status: "failed" as const };
-	if (checkout.status === "paid" || checkout.order_id) return fulfillGcashPayment(paymentIntentId);
-	await rest(`gcash_checkouts?id=eq.${encodeURIComponent(paymentIntentId)}`, {
-		method: "PATCH",
-		headers: { Prefer: "return=minimal" },
-		body: JSON.stringify({ status }),
-	});
+
+	const claimed = checkout.status === "pending" ? await claimPendingCheckout(paymentIntentId, status) : null;
 	if (status === "failed") return { status: "failed" as const };
-	return fulfillGcashPayment(paymentIntentId);
+	if (claimed) return recordPaidCheckout(paymentIntentId, { ...claimed, status: "paid" });
+	return recordPaidCheckout(paymentIntentId, { ...checkout, status: "paid" });
 }
